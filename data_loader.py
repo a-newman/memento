@@ -1,16 +1,18 @@
-import json
 import os
-import random
 
-import cv2
 import numpy as np
-import pycocotools.mask as mask_util
 import torch
 import torch.utils.data as data
 import torchvision.datasets as datasets
 from torchvision import transforms as T
 
 import config as cfg
+from datasets import (MementoMemAlphaLabelSet, MementoRecordSet,
+                      VideoRecordLoader)
+from torchvideo.samplers import ClipSampler, FrameSampler
+from torchvideo.transforms import (CenterCropVideo, CollectFrames,
+                                   PILVideoToTensor, RandomCropVideo,
+                                   ResizeVideo)
 
 IMAGE_TRAIN_TRANSFORMS = T.Compose([
     # image_rescale_zero_to_1_transform(),
@@ -29,6 +31,18 @@ IMAGE_TEST_TRANSFORMS = T.Compose([
     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 Y_TRANSFORMS = torch.FloatTensor
+VIDEO_TRAIN_TRANSFORMS = T.Compose([
+    ResizeVideo((cfg.RESIZE, cfg.RESIZE)),
+    RandomCropVideo((cfg.CROP_SIZE, cfg.CROP_SIZE)),
+    CollectFrames(),
+    PILVideoToTensor()  # TODO Normalize?
+])
+VIDEO_TEST_TRANSFORMS = T.Compose([
+    ResizeVideo((cfg.RESIZE, cfg.RESIZE)),
+    CenterCropVideo((cfg.CROP_SIZE, cfg.CROP_SIZE)),
+    CollectFrames(),
+    PILVideoToTensor()  # TODO Normalize?
+])
 
 
 def get_dataset(dset_name, *args, **kwargs):
@@ -44,20 +58,61 @@ def get_dataset(dset_name, *args, **kwargs):
         test_ds = LaMemLoader(split="test",
                               transform=IMAGE_TEST_TRANSFORMS,
                               target_transform=Y_TRANSFORMS)
-    elif dset_name == "memento_frames":
-        train_ds = MementoFramesLoader(split='train',
-                                       transform=IMAGE_TRAIN_TRANSFORMS,
-                                       target_transform=Y_TRANSFORMS)
-        val_ds = MementoFramesLoader(split='val',
-                                     transform=IMAGE_TEST_TRANSFORMS,
-                                     target_transform=Y_TRANSFORMS)
-        test_ds = MementoFramesLoader(split='test',
-                                      transform=IMAGE_TEST_TRANSFORMS,
-                                      target_transform=Y_TRANSFORMS)
+    elif dset_name == "memento_ma":
+        train_ds = get_memento_video_loader(split="train",
+                                            transform=VIDEO_TRAIN_TRANSFORMS,
+                                            target_transform=Y_TRANSFORMS)
+        val_ds = get_memento_video_loader(split="val",
+                                          transform=VIDEO_TEST_TRANSFORMS,
+                                          target_transform=Y_TRANSFORMS)
+        test_ds = get_memento_video_loader(split="test",
+                                           transform=VIDEO_TEST_TRANSFORMS,
+                                           target_transform=Y_TRANSFORMS)
     else:
         raise RuntimeError("Unrecognized dset name: {}".format(dset_name))
 
     return train_ds, val_ds, test_ds
+
+
+class NFramesSampler(FrameSampler):
+    def __init__(self, nframes):
+        self.nframes = nframes
+
+    def sample(self, video_length):
+        if video_length == 0:
+            raise ValueError(
+                "Video must be at least 1 frame long but was {} frames long".
+                format(video_length))
+
+        indices = [
+            i * video_length // self.nframes + video_length //
+            (2 * self.nframes) for i in range(self.nframes)
+        ]
+
+        return indices
+
+    def __repr__(self):
+        return self.__class__.__name__ + "(nframes={})".format(self.nframes)
+
+
+def get_memento_video_loader(split,
+                             base_path=cfg.MEMENTO_ROOT,
+                             metadata_path=cfg.MEMENTO_METADATA_PATH,
+                             transform=None,
+                             target_transform=None):
+    record_set = MementoRecordSet.from_metadata_file()
+    label_set = MementoMemAlphaLabelSet(split=split, base_path=base_path)
+    filter_func = lambda r: label_set.is_in_set(r.filename)
+    # sampler = ClipSampler(clip_length=45, frame_step=2)
+    sampler = NFramesSampler(nframes=45)
+    vidloader = VideoRecordLoader(record_set=record_set,
+                                  label_set=label_set,
+                                  filter=filter_func,
+                                  sampler=sampler,
+                                  transform=transform,
+                                  target_transform=target_transform)
+
+    return vidloader
 
 
 class ImageTxtInstance(data.Dataset):
@@ -118,107 +173,12 @@ class LaMemLoader(ImageTxtInstance):
         return sample, target
 
 
-class BaseMementoLoader():
-    def __init__(self,
-                 split,
-                 base_path=cfg.MEMENTO_ROOT,
-                 load_from='npy',
-                 transform=None,
-                 target_transform=None):
-        assert split in ['train', 'val', 'test']
-        assert load_from in ['npy', 'mp4']
-
-        self.split = split
-        self.base_path = base_path
-        self.load_from = load_from
-        self.transform = transform
-        self.target_transform = target_transform
-
-        datapath = os.path.join(base_path,
-                                "memento_{}_data.json".format(split))
-        with open(datapath) as infile:
-            self.memento_data = json.load(infile)
-
-    def __len__(self):
-        return len(self.memento_data)
-
-    def __getitem__(self, index):
-        raise NotImplementedError()
-
-    def load_vid(self, fname):
-        load_func = self._load_from_npy if (
-            self.load_from == '.npy') else self._load_from_mp4
-
-        return load_func(fname)
-
-    def _load_from_npy(self, fname):
-        fpath = os.path.join(self.base_path, "videos_npy",
-                             os.path.splitext(fname)[0] + ".npy")
-
-        return np.load(fpath)
-
-    def _load_from_mp4(self, fname):
-        fpath = os.path.join(self.base_path, "videos", fname)
-        cap = cv2.VideoCaptur(fpath)
-        success = True
-        frames = []
-
-        while success:
-            success, frame = cap.read()
-
-            if success:
-                frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-
-        return np.array(frames)
-
-
-class BaseVideoMemLoader():
-    def __init__(self):
-        pass
-
-
-class MementoFramesLoader(BaseMementoLoader):
-    """
-    Loads approximately every 4th frame from the Memento videos.
-
-    Impelements it by loading the npy files and taking every other frame,
-    for a total of 23 frames/vid.
-
-    Args:
-
-    Returns:
-        x: image frame as a npy array
-        y: mem score, alpha for the overall video, as a list
-    """
-    def __init__(self, nframes=cfg.N_FRAMES_FOR_FRAMES_MODEL, **kwargs):
-        super(MementoFramesLoader, self).__init__(load_from='npy', **kwargs)
-        self.nframes = nframes
-
-    def __len__(self):
-        return len(self.memento_data) * self.nframes
-
-    def _subsample_frames(self, arr):
-        step = (len(arr) - 1) / (self.nframes - 1)
-        indices = [round(i * step) for i in range(self.nframes)]
-
-        return arr[indices]
-
-    def __getitem__(self, index):
-        vid_idx = index // self.nframes
-        frame_idx = index % self.nframes
-        vid_data = self.memento_data[vid_idx]
-        mem_score, alpha = vid_data["mem_score"], vid_data["alpha"]
-
-        # this should give you 45 frames
-        frames = self.load_vid(vid_data['filename'])
-        frames = self._subsample_frames(frames)
-        frame = frames[frame_idx]
-        y = [mem_score, alpha]
-
-        if self.transform is not None:
-            frame = self.transform(frame)
-
-        if self.target_transform is not None:
-            y = self.target_transform(y)
-
-        return frame, y
+if __name__ == "__main__":
+    print("making dataloader")
+    # dl = get_memento_video_loader(split="train")
+    dl = get_dataset("memento_ma")[0]
+    print("done making dataloader")
+    print(len(dl))
+    x, y = dl[0]
+    print("x", x.shape)
+    print("y", y)

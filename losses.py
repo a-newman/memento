@@ -36,13 +36,9 @@ class MemAlphaLoss(nn.Module):
         lags = lags.repeat(batch_size, 1)
         lags = lags.to(self.device)
 
-        print("mem true shape before repeat", mem_true.shape)  # [200]
         mem_true, mem_pred, alpha_true, alpha_pred = map(
             duplicate, [mem_true, mem_pred, alpha_true, alpha_pred])
 
-        print("lags shape", lags.shape)  # 200, 100
-        print("alphas shape", alpha_true.shape)  # 100, 200
-        print("mem shape", mem_true.shape)  # 100, 200
         decay_curve_true = alpha_true * (lags - 80.) + mem_true
         decay_curve_pred = alpha_pred * (lags - 80.) + mem_pred
 
