@@ -119,8 +119,6 @@ class VideoRecordLoader(VideoDataset):
             return [record.label for record in record_set]
 
     def _load_frames(self, vidpath, indices):
-        print("LOADER", self.loader)
-
         return self.loader(vidpath, indices)
 
     def __len__(self):

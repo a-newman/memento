@@ -2,7 +2,7 @@ LAMEM_ROOT = "/home/anelise/scratch/datasets/LaMem"
 MEMENTO_ROOT = "/home/anelise/datasets/memento/release_v1"
 MEMENTO_METADATA_PATH = "memento_metadata.json"
 
-BATCH_SIZE = 100
+BATCH_SIZE = 20
 NUM_WORKERS = 20
 USE_GPU = True
 NUM_EPOCHS = 100
