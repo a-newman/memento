@@ -1,10 +1,15 @@
+import torch
 import torch.nn as nn
 from torchvision.models import densenet121
+
+from kinetics_i3d_pytorch.src.i3dpt import I3D
 
 
 def get_model(model_name):
     if model_name == "frames":
         return FramesStream()
+    elif model_name == "video":
+        return VideoStream.get_pretrained()
     else:
         raise RuntimeError("Unrecognized model name {}".format(model_name))
 
@@ -58,9 +63,49 @@ class FramesStream(FramesModel):
         return out
 
 
-class VideoStream(nn.Module):
-    def __init__(self):
-        super(VideoStream, self).__init__()
-        self.encoder = None
-        pass
+class VideoStream(I3D):
+    @classmethod
+    def get_pretrained(cls,
+                       weights="./kinetics_i3d_pytorch/model/model_rgb.pth",
+                       **kwargs):
+        model = cls(**kwargs)
+        # strict = False will ignore the layers that we don't use
+        model.load_state_dict(torch.load(weights), strict=False)
 
+        return model
+
+    def __init__(self):
+        super(VideoStream, self).__init__(num_classes=400)
+        # weights = "kinetics_i3d_pytorch/model/model_rgb.pth"
+        self.final_conv = nn.Conv3d(in_channels=1024,
+                                    out_channels=2,
+                                    kernel_size=(1, 1, 1),
+                                    stride=(1, 1, 1))
+        self.tanh = nn.Tanh()
+
+    def forward(self, x):
+        # Preprocessing
+        out = self.conv3d_1a_7x7(x)
+        out = self.maxPool3d_2a_3x3(out)
+        out = self.conv3d_2b_1x1(out)
+        out = self.conv3d_2c_3x3(out)
+        out = self.maxPool3d_3a_3x3(out)
+        out = self.mixed_3b(out)
+        out = self.mixed_3c(out)
+        out = self.maxPool3d_4a_3x3(out)
+        out = self.mixed_4b(out)
+        out = self.mixed_4c(out)
+        out = self.mixed_4d(out)
+        out = self.mixed_4e(out)
+        out = self.mixed_4f(out)
+        out = self.maxPool3d_5a_2x2(out)
+        out = self.mixed_5b(out)
+        out = self.mixed_5c(out)
+        out = self.avg_pool(out)
+        out = self.dropout(out)
+        # out = self.conv3d_0c_1x1(out)
+        out = self.final_conv(out)
+        out = out.squeeze(3).squeeze(3).mean(2)
+        out = self.tanh(out)
+
+        return out

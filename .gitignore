@@ -1,5 +1,4 @@
-/ckpt
-/logs
+data/
 
 # swp files 
 *.sw[oap]

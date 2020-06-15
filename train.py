@@ -41,10 +41,12 @@ def main(verbose=1,
     if restore and ckpt_path:
         raise RuntimeError("Specify restore 0R ckpt_path")
 
-    ckpt_savepath = os.path.join(cfg.CKPT_DIR, "{}.pth".format(run_id))
+    ckpt_savepath = os.path.join(cfg.DATA_SAVEDIR, run_id, cfg.CKPT_DIR,
+                                 "model.pth")
     print("Saving ckpts to {}".format(ckpt_savepath))
-    logs_savepath = os.path.join(cfg.LOGDIR, run_id)
+    logs_savepath = os.path.join(cfg.DATA_SAVEDIR, run_id, cfg.LOGDIR)
     print("Saving logs to {}".format(logs_savepath))
+    _makedirs(ckpt_savepath, logs_savepath)
 
     if restore or ckpt_path:
         print("Restoring weights from {}".format(
@@ -61,6 +63,7 @@ def main(verbose=1,
 
     # model
     model = get_model(model_name)
+    print("model", model)
     model = DataParallel(model)
 
     # must call this before constructing the optimizer:
@@ -174,7 +177,7 @@ def main(verbose=1,
                         y = y.to(device)
 
                         out = model(x)
-                        loss = criterion(x, y)
+                        loss = criterion(out, y)
 
                         logger.add_scalar('ValLoss', loss, iteration)
 
@@ -188,6 +191,19 @@ def main(verbose=1,
         print('Got keyboard interrupt, saving model...')
         save_ckpt(ckpt_savepath, model, epoch, iteration, optimizer, dset_name,
                   model_name)
+
+
+def _makedirs(ckpt_path, logs_path):
+    try:
+        ckpt_dir = os.path.dirname(ckpt_path)
+        os.makedirs(ckpt_dir)
+    except FileExistsError:
+        pass
+
+    try:
+        os.makedirs(logs_path)
+    except FileExistsError:
+        pass
 
 
 if __name__ == "__main__":

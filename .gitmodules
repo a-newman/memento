@@ -1,0 +1,3 @@
+[submodule "kinetics_i3d_pytorch"]
+	path = kinetics_i3d_pytorch
+	url = https://github.com/hassony2/kinetics_i3d_pytorch
