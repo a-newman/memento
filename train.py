@@ -3,7 +3,7 @@ import time
 
 import fire
 import torch
-from torch.nn import DataParallel
+from torch.nn import DataParallel, MSELoss
 from torch.utils.data import DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -79,7 +79,8 @@ def main(verbose=1,
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                    step_size=3,
                                                    gamma=0.1)
-    criterion = MemAlphaLoss(device=device)
+    # criterion = MemAlphaLoss(device=device)
+    criterion = MSELoss()
 
     initial_epoch = 0
     iteration = 0
@@ -148,6 +149,7 @@ def main(verbose=1,
                 y = y.to(device)
 
                 out = model(x)
+                print("out", out)
                 loss = criterion(out, y)
 
                 # I think this zeros out previous gradients (in case people
@@ -157,6 +159,7 @@ def main(verbose=1,
                 optimizer.step()
 
                 # logging
+                print("LOSS", loss.item())
                 logger.add_scalar('TrainLoss', loss.item(), iteration)
                 logger.add_scalar('ItTime', time.time() - start, iteration)
                 start = time.time()

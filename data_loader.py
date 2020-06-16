@@ -13,7 +13,27 @@ from datasets import (MementoMemAlphaLabelSet, MementoRecordSet,
 from torchvideo.samplers import ClipSampler, FrameSampler, FullVideoSampler
 from torchvideo.transforms import (CenterCropVideo, CollectFrames,
                                    PILVideoToTensor, RandomCropVideo,
-                                   ResizeVideo, TimeToChannel)
+                                   ResizeVideo, TimeToChannel, Transform)
+
+
+
+class RescaleInRange(Transform):
+    def __init__(self, lower, upper):
+        self.lower = lower
+        self.upper = upper
+        assert self.lower < self.upper
+
+    def _gen_params(self, frames):
+        return None
+
+    def _transform(self, frames, params):
+        maxval = torch.max(frames)
+        minval = torch.min(frames)
+        spread = self.upper - self.lower
+        current_spread = maxval - minval
+
+        return (frames - minval) * (spread / current_spread) + self.lower
+
 
 IMAGE_TRAIN_TRANSFORMS = T.Compose([
     # image_rescale_zero_to_1_transform(),
@@ -33,16 +53,18 @@ IMAGE_TEST_TRANSFORMS = T.Compose([
 ])
 Y_TRANSFORMS = torch.FloatTensor
 VIDEO_TRAIN_TRANSFORMS = T.Compose([
-    ResizeVideo((cfg.RESIZE, cfg.RESIZE)),
-    RandomCropVideo((cfg.CROP_SIZE, cfg.CROP_SIZE)),
+    ResizeVideo(cfg.RESIZE),
+    RandomCropVideo(cfg.CROP_SIZE),
     CollectFrames(),
-    PILVideoToTensor()  # TODO Normalize?
+    PILVideoToTensor(rescale=True),
+    RescaleInRange(-1, 1)
 ])
 VIDEO_TEST_TRANSFORMS = T.Compose([
     ResizeVideo((cfg.RESIZE, cfg.RESIZE)),
     CenterCropVideo((cfg.CROP_SIZE, cfg.CROP_SIZE)),
     CollectFrames(),
-    PILVideoToTensor()  # TODO Normalize?
+    PILVideoToTensor(rescale=True),
+    RescaleInRange(-1, 1)
 ])
 FRAMES_TRAIN_TRANSFORMS = T.Compose([VIDEO_TRAIN_TRANSFORMS, TimeToChannel()])
 FRAMES_TEST_TRANSFORMS = T.Compose([VIDEO_TEST_TRANSFORMS, TimeToChannel()])
