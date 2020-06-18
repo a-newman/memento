@@ -1,12 +1,11 @@
 import json
 import os
 
+import config as cfg
 from torchvideo.datasets import LabelSet, VideoDataset
 from torchvideo.internal.readers import default_loader
 from torchvideo.samplers import _default_sampler
 from torchvideo.transforms import PILVideoToTensor
-
-import config as cfg
 
 
 class VideoRecord:
@@ -142,7 +141,7 @@ class VideoRecordLoader(VideoDataset):
 
 
 class MementoLabelSet(LabelSet):
-    def __init__(self, split, base_path):
+    def __init__(self, split, base_path=cfg.MEMENTO_ROOT):
         self.split = split
         self.base_path = base_path
 
@@ -165,7 +164,13 @@ class MementoLabelSet(LabelSet):
 
 
 class MementoMemAlphaLabelSet(MementoLabelSet):
-    def __getitem__(self, vidpath):
+    def __init__(self, split, factor=100):
+        MementoLabelSet.__init__(self, split)
+        self.factor = factor
+
+    def __getitem__(self, vidpath, factor=1):
         viddata = self.data_for_vidpath(vidpath)
 
-        return [viddata['mem_score'], viddata['alpha']]
+        return [
+            self.factor * viddata['mem_score'], self.factor * viddata['alpha']
+        ]

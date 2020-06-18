@@ -1,3 +1,4 @@
+import numbers
 import os
 import time
 
@@ -9,12 +10,21 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 import config as cfg
+import utils
 from data_loader import get_dataset
+from evaluate import rc
 from losses import MemAlphaLoss
 from models import get_model
 
 
-def save_ckpt(savepath, model, epoch, it, optimizer, dataset_name, model_type):
+def save_ckpt(savepath,
+              model,
+              epoch,
+              it,
+              optimizer,
+              dataset_name,
+              model_type,
+              metrics=None):
     torch.save(
         {
             'epoch': epoch,
@@ -22,48 +32,38 @@ def save_ckpt(savepath, model, epoch, it, optimizer, dataset_name, model_type):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'dataset_name': dataset_name,
-            'model_type': model_type
+            'model_type': model_type,
+            'metrics': metrics
         }, savepath)
 
 
 def main(verbose=1,
          print_freq=100,
          restore=True,
-         ckpt_path=None,
          val_freq=1,
          run_id="model",
          dset_name="memento_frames",
          model_name="frames",
-         freeze_encoder_until_it=1000):
+         freeze_encoder_until_it=1000,
+         additional_metrics={'rc': rc},
+         debug_n=None):
 
     print("TRAINING MODEL {} ON DATASET {}".format(model_name, dset_name))
 
-    if restore and ckpt_path:
-        raise RuntimeError("Specify restore 0R ckpt_path")
-
-    ckpt_savepath = os.path.join(cfg.DATA_SAVEDIR, run_id, cfg.CKPT_DIR,
-                                 "model.pth")
-    print("Saving ckpts to {}".format(ckpt_savepath))
+    ckpt_savedir = os.path.join(cfg.DATA_SAVEDIR, run_id, cfg.CKPT_DIR)
+    print("Saving ckpts to {}".format(ckpt_savedir))
     logs_savepath = os.path.join(cfg.DATA_SAVEDIR, run_id, cfg.LOGDIR)
     print("Saving logs to {}".format(logs_savepath))
-    _makedirs(ckpt_savepath, logs_savepath)
+    utils.makedirs([ckpt_savedir, logs_savepath])
+    last_ckpt_path = os.path.join(ckpt_savedir, "last_model.pth")
 
-    if restore or ckpt_path:
-        print("Restoring weights from {}".format(
-            ckpt_savepath if restore else ckpt_path))
-
-    if cfg.USE_GPU:
-        if not torch.cuda.is_available():
-            raise RuntimeError("cuda not available")
-        device = torch.device('cuda')
-    else:
-        device = torch.device("cpu")
+    device = utils.set_device()
 
     print('DEVICE', device)
 
     # model
     model = get_model(model_name)
-    print("model", model)
+    # print("model", model)
     model = DataParallel(model)
 
     # must call this before constructing the optimizer:
@@ -86,30 +86,29 @@ def main(verbose=1,
     iteration = 0
     unfrozen = False
 
-    if ckpt_path:
-        ckpt = torch.load(ckpt_path)
-        state_dict = ckpt['model_state_dict']
+    if restore:
+        ckpt_path = restore if isinstance(restore, str) else last_ckpt_path
 
-        model.load_state_dict(state_dict)
+        if os.path.exists(ckpt_path):
 
-    elif restore:
-        if os.path.exists(ckpt_savepath):
-            print("LOADING MODEL")
-            ckpt = torch.load(ckpt_savepath)
+            print("Restoring weights from {}".format(ckpt_path))
+
+            ckpt = torch.load(ckpt_path)
             model.load_state_dict(ckpt['model_state_dict'])
             optimizer.load_state_dict(ckpt['optimizer_state_dict'])
             initial_epoch = ckpt['epoch']
             iteration = ckpt['it']
-
     else:
-        raise RuntimeError("Should not get here! Check for bugs")
+        ckpt_path = last_ckpt_path
 
     # dataset
     train_ds, val_ds, test_ds = get_dataset(dset_name)
     assert val_ds or test_ds
 
-    # train_ds = Subset(train_ds, range(500))
-    # test_ds = Subset(test_ds, range(100))
+    if debug_n is not None:
+        train_ds = Subset(train_ds, range(debug_n))
+        test_ds = Subset(test_ds, range(debug_n))
+
     train_dl = DataLoader(train_ds,
                           batch_size=cfg.BATCH_SIZE,
                           shuffle=True,
@@ -149,7 +148,6 @@ def main(verbose=1,
                 y = y.to(device)
 
                 out = model(x)
-                print("out", out)
                 loss = criterion(out, y)
 
                 # I think this zeros out previous gradients (in case people
@@ -159,7 +157,6 @@ def main(verbose=1,
                 optimizer.step()
 
                 # logging
-                print("LOSS", loss.item())
                 logger.add_scalar('TrainLoss', loss.item(), iteration)
                 logger.add_scalar('ItTime', time.time() - start, iteration)
                 start = time.time()
@@ -174,39 +171,53 @@ def main(verbose=1,
 
                 with torch.no_grad():
 
+                    labels = []
+                    preds = []
+                    losses = []
+
                     for i, (x, y) in tqdm(enumerate(test_dl),
                                           total=len(test_ds) / cfg.BATCH_SIZE):
+
+                        labels.extend(y.numpy())
                         x = x.to(device)
                         y = y.to(device)
 
                         out = model(x)
+                        preds.extend(out.cpu().numpy())
                         loss = criterion(out, y)
 
                         logger.add_scalar('ValLoss', loss, iteration)
+                        losses.append(loss)
+
+                    print("Calculating validation metric...")
+                    metrics = {
+                        fname: f(labels, preds, losses)
+                        for fname, f in additional_metrics.items()
+                    }
+                    print("Validation metrics", metrics)
+
+                    for k, v in metrics.items():
+                        if isinstance(v, numbers.Number):
+                            logger.add_scalar('Metric_{}'.format(k), v,
+                                              iteration)
+
+                    metrics['total_val_loss'] = sum(losses)
+
+                    ckpt_path = os.path.join(
+                        ckpt_savedir, utils.get_ckpt_path(epoch, metrics))
+                    save_ckpt(ckpt_path, model, epoch, iteration, optimizer,
+                              dset_name, model_name, metrics)
 
             # end of epoch
             lr_scheduler.step()
 
-            save_ckpt(ckpt_savepath, model, epoch, iteration, optimizer,
+            save_ckpt(last_ckpt_path, model, epoch, iteration, optimizer,
                       dset_name, model_name)
 
     except KeyboardInterrupt:
         print('Got keyboard interrupt, saving model...')
-        save_ckpt(ckpt_savepath, model, epoch, iteration, optimizer, dset_name,
-                  model_name)
-
-
-def _makedirs(ckpt_path, logs_path):
-    try:
-        ckpt_dir = os.path.dirname(ckpt_path)
-        os.makedirs(ckpt_dir)
-    except FileExistsError:
-        pass
-
-    try:
-        os.makedirs(logs_path)
-    except FileExistsError:
-        pass
+        save_ckpt(last_ckpt_path, model, epoch, iteration, optimizer,
+                  dset_name, model_name)
 
 
 if __name__ == "__main__":

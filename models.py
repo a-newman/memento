@@ -81,7 +81,7 @@ class VideoStream(I3D):
                                     out_channels=2,
                                     kernel_size=(1, 1, 1),
                                     stride=(1, 1, 1))
-        self.tanh = nn.Tanh()
+        self.activation = nn.LeakyReLU()
 
     def forward(self, x):
         # Preprocessing
@@ -106,6 +106,6 @@ class VideoStream(I3D):
         # out = self.conv3d_0c_1x1(out)
         out = self.final_conv(out)
         out = out.squeeze(3).squeeze(3).mean(2)
-        out = self.tanh(out)
+        out = self.activation(out)
 
         return out

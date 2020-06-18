@@ -16,7 +16,6 @@ from torchvideo.transforms import (CenterCropVideo, CollectFrames,
                                    ResizeVideo, TimeToChannel, Transform)
 
 
-
 class RescaleInRange(Transform):
     def __init__(self, lower, upper):
         self.lower = lower
@@ -129,10 +128,14 @@ class NRandomFramesSampler(FrameSampler):
 
 
 class NFramesSampler(FrameSampler):
-    def __init__(self, nframes):
+    def __init__(self, nframes, avoid_final_frame=True):
         self.nframes = nframes
+        self.avoid_final_frame = avoid_final_frame
 
     def sample(self, video_length):
+        if self.avoid_final_frame:
+            video_length = video_length - 1
+
         if video_length == 0:
             raise ValueError(
                 "Video must be at least 1 frame long but was {} frames long".
@@ -194,12 +197,11 @@ def memento_video_loader(split, transform, target_transform):
 
 def get_memento_video_loader(split,
                              sampler,
-                             base_path=cfg.MEMENTO_ROOT,
                              metadata_path=cfg.MEMENTO_METADATA_PATH,
                              transform=None,
                              target_transform=None):
     record_set = MementoRecordSet.from_metadata_file()
-    label_set = MementoMemAlphaLabelSet(split=split, base_path=base_path)
+    label_set = MementoMemAlphaLabelSet(split=split, factor=100)
     filter_func = lambda r: label_set.is_in_set(r.filename)
     # sampler = ClipSampler(clip_length=45, frame_step=2)
     vidloader = VideoRecordLoader(record_set=record_set,
