@@ -9,7 +9,7 @@ def get_model(model_name):
     if model_name == "frames":
         return FramesStream()
     elif model_name == "video":
-        return VideoStream.get_pretrained()
+        return VideoStream()
     else:
         raise RuntimeError("Unrecognized model name {}".format(model_name))
 
@@ -63,20 +63,10 @@ class FramesStream(FramesModel):
         return out
 
 
-class VideoStream(I3D):
-    @classmethod
-    def get_pretrained(cls,
-                       weights="./kinetics_i3d_pytorch/model/model_rgb.pth",
-                       **kwargs):
-        model = cls(**kwargs)
-        # strict = False will ignore the layers that we don't use
-        model.load_state_dict(torch.load(weights), strict=False)
-
-        return model
-
+class VideoStream(nn.Module):
     def __init__(self):
-        super(VideoStream, self).__init__(num_classes=400)
-        # weights = "kinetics_i3d_pytorch/model/model_rgb.pth"
+        super(VideoStream, self).__init__()
+        self.base = HeadlessI3D.get_pretrained()
         self.final_conv = nn.Conv3d(in_channels=1024,
                                     out_channels=2,
                                     kernel_size=(1, 1, 1),
@@ -84,8 +74,27 @@ class VideoStream(I3D):
         self.activation = nn.LeakyReLU()
 
     def forward(self, x):
-        # Preprocessing
-        out = self.conv3d_1a_7x7(x)
+        out = self.base(x)
+        out = self.final_conv(out)
+        out = out.squeeze(3).squeeze(3).mean(2)
+        out = self.activation(out)
+
+        return out
+
+
+class HeadlessI3D(I3D):
+    @classmethod
+    def get_pretrained(cls,
+                       weights="./kinetics_i3d_pytorch/model/model_rgb.pth",
+                       **kwargs):
+        model = cls(num_classes=400, **kwargs)
+        # strict = False will ignore the layers that we don't use
+        model.load_state_dict(torch.load(weights), strict=False)
+
+        return model
+
+    def forward(self, inp):
+        out = self.conv3d_1a_7x7(inp)
         out = self.maxPool3d_2a_3x3(out)
         out = self.conv3d_2b_1x1(out)
         out = self.conv3d_2c_3x3(out)
@@ -104,8 +113,10 @@ class VideoStream(I3D):
         out = self.avg_pool(out)
         out = self.dropout(out)
         # out = self.conv3d_0c_1x1(out)
-        out = self.final_conv(out)
-        out = out.squeeze(3).squeeze(3).mean(2)
-        out = self.activation(out)
+        # out = out.squeeze(3)
+        # out = out.squeeze(3)
+        # out = out.mean(2)
+        # out_logits = out
+        # out = self.softmax(out_logits)
 
         return out
