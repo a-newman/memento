@@ -1,7 +1,10 @@
 import json
 import os
+import pickle
+import random
 
 import config as cfg
+from cap_utils import transform_caption
 from torchvideo.datasets import LabelSet, VideoDataset
 from torchvideo.internal.readers import default_loader
 from torchvideo.samplers import _default_sampler
@@ -156,8 +159,10 @@ class MementoLabelSet(LabelSet):
         }
 
     def data_for_vidpath(self, vidpath):
-        return self.memento_data[os.path.splitext(
-            os.path.basename(vidpath))[0]]
+        return self.memento_data[self.vidname_from_path(vidpath)]
+
+    def vidname_from_path(self, vidpath):
+        return os.path.splitext(os.path.basename(vidpath))[0]
 
     def is_in_set(self, vidname):
         return vidname in self.memento_data
@@ -168,9 +173,47 @@ class MementoMemAlphaLabelSet(MementoLabelSet):
         MementoLabelSet.__init__(self, split)
         self.factor = factor
 
-    def __getitem__(self, vidpath, factor=1):
+    def __getitem__(self, vidpath):
         viddata = self.data_for_vidpath(vidpath)
 
         return [
             self.factor * viddata['mem_score'], self.factor * viddata['alpha']
         ]
+
+
+class MementoMemAlphaCapLabelSet(MementoLabelSet):
+    def __init__(self, split, factor=100):
+        MementoLabelSet.__init__(self, split)
+        self.factor = factor
+
+        with open(
+                os.path.join(cfg.MEMENTO_CAPTIONS_PATH,
+                             "vocab_embedding.json")) as infile:
+            self.word_embedding = json.load(infile)
+
+        caps_path = cfg.MEMENTO_CAPTIONS_DATA
+        with open(caps_path) as infile:
+            self.cap_data = json.load(infile)
+
+    def __getitem__(self, vidpath):
+        viddata = self.data_for_vidpath(vidpath)
+        mem_data = [
+            self.factor * viddata['mem_score'], self.factor * viddata['alpha']
+        ]
+
+        cap_data = self.cap_data[self.vidname_from_path(vidpath)]
+        cap_i = random.randint(0, len(cap_data['indexed_captions']) - 1)
+        cap, tokenized_cap = cap_data['indexed_captions'][cap_i], cap_data[
+            'tokenized_captions'][cap_i]
+
+        cap_in, cap_out = transform_caption(
+            cap,
+            tokenized_cap,
+            input_format="embedding_list",
+            caption_format="one_hot_list",
+            add_padding=True,
+            word_embeddings=self.word_embedding,
+            max_cap_len=cfg.MAX_CAP_LEN,
+            vocab_size=cfg.VOCAB_SIZE)
+
+        return mem_data, cap_in, cap_out

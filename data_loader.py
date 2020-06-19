@@ -8,8 +8,8 @@ import torchvision.datasets as datasets
 from torchvision import transforms as T
 
 import config as cfg
-from datasets import (MementoMemAlphaLabelSet, MementoRecordSet,
-                      VideoRecordLoader)
+from datasets import (MementoMemAlphaCapLabelSet, MementoMemAlphaLabelSet,
+                      MementoRecordSet, VideoRecordLoader)
 from torchvideo.samplers import ClipSampler, FrameSampler, FullVideoSampler
 from torchvideo.transforms import (CenterCropVideo, CollectFrames,
                                    PILVideoToTensor, RandomCropVideo,
@@ -92,16 +92,22 @@ def get_dataset(dset_name, *args, **kwargs):
         test_ds = memento_frames_loader(split="test",
                                         transform=VIDEO_TEST_TRANSFORMS,
                                         target_transform=Y_TRANSFORMS)
-    elif dset_name == "memento_ma":
+    elif (dset_name == "memento_ma") or (dset_name == "memento_ma_cap"):
+        with_captions = dset_name == "memento_ma_cap"
+        y_transform = Y_TRANSFORMS if not with_captions else None
+        print("Y TRANSFORM", y_transform)
         train_ds = memento_video_loader(split="train",
                                         transform=VIDEO_TRAIN_TRANSFORMS,
-                                        target_transform=Y_TRANSFORMS)
+                                        target_transform=y_transform,
+                                        with_captions=with_captions)
         val_ds = memento_video_loader(split="val",
                                       transform=VIDEO_TEST_TRANSFORMS,
-                                      target_transform=Y_TRANSFORMS)
+                                      target_transform=y_transform,
+                                      with_captions=with_captions)
         test_ds = memento_video_loader(split="test",
                                        transform=VIDEO_TEST_TRANSFORMS,
-                                       target_transform=Y_TRANSFORMS)
+                                       target_transform=y_transform,
+                                       with_captions=with_captions)
     else:
         raise RuntimeError("Unrecognized dset name: {}".format(dset_name))
 
@@ -186,24 +192,32 @@ def memento_frames_loader(split, transform, target_transform, nframes=23):
                                     target_transform=target_transform)
 
 
-def memento_video_loader(split, transform, target_transform):
+def memento_video_loader(split,
+                         transform,
+                         target_transform,
+                         with_captions=False):
     sampler = NFramesSampler(nframes=45)
 
     return get_memento_video_loader(split,
                                     sampler,
                                     transform=transform,
-                                    target_transform=target_transform)
+                                    target_transform=target_transform,
+                                    with_captions=with_captions)
 
 
 def get_memento_video_loader(split,
                              sampler,
                              metadata_path=cfg.MEMENTO_METADATA_PATH,
                              transform=None,
-                             target_transform=None):
+                             target_transform=None,
+                             with_captions=False):
     record_set = MementoRecordSet.from_metadata_file()
-    label_set = MementoMemAlphaLabelSet(split=split, factor=100)
+
+    if with_captions:
+        label_set = MementoMemAlphaCapLabelSet(split=split, factor=100)
+    else:
+        label_set = MementoMemAlphaLabelSet(split=split, factor=100)
     filter_func = lambda r: label_set.is_in_set(r.filename)
-    # sampler = ClipSampler(clip_length=45, frame_step=2)
     vidloader = VideoRecordLoader(record_set=record_set,
                                   label_set=label_set,
                                   filter=filter_func,
