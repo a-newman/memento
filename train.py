@@ -62,7 +62,7 @@ def main(verbose=1,
     print('DEVICE', device)
 
     # model
-    model = get_model(model_name)
+    model = get_model(model_name, device)
     # print("model", model)
     model = DataParallel(model)
 
@@ -79,8 +79,8 @@ def main(verbose=1,
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                    step_size=3,
                                                    gamma=0.1)
-    # criterion = MemAlphaLoss(device=device)
-    criterion = MSELoss()
+    criterion = MemAlphaLoss(device=device)
+    # criterion = MSELoss()
 
     initial_epoch = 0
     iteration = 0
