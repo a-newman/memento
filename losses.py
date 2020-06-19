@@ -6,9 +6,9 @@ import torch.nn as nn
 class MemAlphaLoss(nn.Module):
     def __init__(self,
                  device,
-                 mse_mem_coeff=100,
-                 mse_alpha_coeff=10,
-                 decay_curve_coeff=1,
+                 mse_mem_coeff=1,
+                 mse_alpha_coeff=.1,
+                 decay_curve_coeff=.01,
                  npoints=100):
         super(MemAlphaLoss, self).__init__()
         self.mse_mem_coeff = mse_mem_coeff
@@ -27,8 +27,8 @@ class MemAlphaLoss(nn.Module):
         mem_pred = y_pred[:, 0]
         alpha_pred = y_pred[:, 1]
 
-        mse_mem = torch.sum((mem_true - mem_pred)**2)
-        mse_alpha = torch.sum((alpha_true - alpha_pred)**2)
+        mse_mem = nn.functional.mse_loss(mem_pred, mem_true)
+        mse_alpha = nn.functional.mse_loss(alpha_pred, alpha_true)
 
         # calculate points along the decay curve
         batch_size = list(y_pred.shape)[0]
@@ -42,7 +42,7 @@ class MemAlphaLoss(nn.Module):
         decay_curve_true = alpha_true * (lags - 80.) + mem_true
         decay_curve_pred = alpha_pred * (lags - 80.) + mem_pred
 
-        decay_mse = torch.sum((decay_curve_pred - decay_curve_true)**2)
+        decay_mse = nn.functional.mse_loss(decay_curve_pred, decay_curve_true)
 
         return (self.mse_mem_coeff *
                 mse_mem) + (self.mse_alpha_coeff *
