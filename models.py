@@ -2,14 +2,17 @@ import torch
 import torch.nn as nn
 from torchvision.models import densenet121
 
+import config as cfg
 from kinetics_i3d_pytorch.src.i3dpt import I3D
 
 
-def get_model(model_name):
+def get_model(model_name, device):
     if model_name == "frames":
         return FramesStream()
     elif model_name == "video":
         return VideoStream()
+    elif model_name == "video_lstm":
+        return VideoStreamLSTM(device)
     else:
         raise RuntimeError("Unrecognized model name {}".format(model_name))
 
@@ -61,6 +64,84 @@ class FramesStream(FramesModel):
         out = self.sigmoid(self.fc(self.encoder(x)))
 
         return out
+
+
+class VideoStreamLSTM(nn.Module):
+    """ IN PROGRESS
+    See https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Image-Captioning/blob/master/models.py
+    for implementation of show, attend, and tell
+
+    """
+    def __init__(self,
+                 device,
+                 max_caption_size=cfg.MAX_CAP_LEN,
+                 vocab_size=cfg.VOCAB_SIZE,
+                 n_hidden_units=512):
+        super(VideoStreamLSTM, self).__init__()
+        self.max_caption_size = max_caption_size
+        self.vocab_size = vocab_size
+        self.feature_dim = 1024
+        self.n_hidden_units = n_hidden_units
+        self.lstm_input_size = 300
+        self.dropout = 0.5
+        self.device = device
+
+        self.base = HeadlessI3D.get_pretrained()
+
+        # mem alpha branch
+        self.final_conv = self._unit_conv(in_dim=self.n_hidden_units,
+                                          out_dim=2)
+        self.activation = nn.LeakyReLU()
+
+        # captions branch
+        self.init_h = self._unit_conv(in_dim=self.n_hidden_units,
+                                      out_dim=self.n_hidden_units)
+        self.init_c = self._unit_conv(in_dim=self.n_hidden_units,
+                                      out_dim=self.n_hidden_units)
+        # self.lstm = nn.LSTM(input_size=self.lstm_input_size,
+        #                     hidden_size=self.n_hidden_units,
+        #                     num_layers=2)
+        self.lstm_step = nn.LSTMCell()
+        # self.post_lstm_fc = nn.Linear(in_features=None,
+        #                               out_features=self.vocab_size)
+        self.cap_fc = nn.Linear(self.n_hidden_units, self.vocab_size)
+        self.cap_dropout = nn.Dropout(p=self.dropout)
+        self.cap_activation = nn.Softmax()
+        self.lstm_activation = nn.SoftMax()
+
+    @staticmethod
+    def _unit_conv(in_dim, out_dim):
+        return nn.Conv3d(in_channels=in_dim,
+                         out_channels=out_dim,
+                         kernel_size=(1, 1, 1),
+                         stride=(1, 1, 1))
+
+    def forward(self, x, cap_inp):
+        features = self.base(x)
+        batch_size = features.size(0)
+
+        # mem-alpha branch
+        mem_out = self.final_conv(features)
+        mem_out = mem_out.squeeze(3).squeeze(3).mean(2)
+        mem_out = self.activation(mem_out)
+
+        # captions branch
+        h = self.init_h0(features)
+        c = self.init_c0(features)
+        # cap dim seq_len, batch, input_size
+        # cap_inp = cap
+        # cap_out, (hn, cn) = self.lstm(cap_inp, (h0, c0))
+
+        predictions = torch.zeros(batch_size, self.max_caption_size,
+                                  self.vocab_size).to(self.device)
+
+        for i in range(self.max_caption_size):
+            inp = cap_inp[i]  # batch size, input size
+            h, c = self.lstm_step(inp, (h, c))
+            preds = self.cap_activation(self.cap_fc(self.cap_dropout(h)))
+            predictions[:, i, :] = preds
+
+        return mem_out, predictions
 
 
 class VideoStream(nn.Module):
