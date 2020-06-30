@@ -110,19 +110,17 @@ def get_dataset(dset_name, *args, **kwargs):
                                         target_transform=Y_TRANSFORMS)
     elif (dset_name == "memento_ma") or (dset_name == "memento_ma_cap"):
         with_captions = dset_name == "memento_ma_cap"
-        y_transform = Y_TRANSFORMS if not with_captions else None
-        print("Y TRANSFORM", y_transform)
         train_ds = memento_video_loader(split="train",
                                         transform=VIDEO_TRAIN_TRANSFORMS,
-                                        target_transform=y_transform,
+                                        target_transform=Y_TRANSFORMS,
                                         with_captions=with_captions)
         val_ds = memento_video_loader(split="val",
                                       transform=VIDEO_TEST_TRANSFORMS,
-                                      target_transform=y_transform,
+                                      target_transform=Y_TRANSFORMS,
                                       with_captions=with_captions)
         test_ds = memento_video_loader(split="test",
                                        transform=VIDEO_TEST_TRANSFORMS,
-                                       target_transform=y_transform,
+                                       target_transform=Y_TRANSFORMS,
                                        with_captions=with_captions)
     else:
         raise RuntimeError("Unrecognized dset name: {}".format(dset_name))

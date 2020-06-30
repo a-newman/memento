@@ -151,9 +151,8 @@ def main(verbose: int = 1,
 
                 x = x.to(device)
                 y = y.to_device(device)
-                print("Y", y)
 
-                out = ModelOutput(model(x))
+                out = ModelOutput(model(x, y))
                 loss = criterion(out, y)
 
                 # I think this zeros out previous gradients (in case people
@@ -195,7 +194,7 @@ def main(verbose: int = 1,
                         x = x.to(device)
                         y = y.to_device(device)
 
-                        out = ModelOutput(model(x))
+                        out = ModelOutput(model(x, y))
                         out_numpy = out.to_device('cpu').to_numpy()
                         preds = out_numpy if preds is None else preds.merge(
                             out_numpy)

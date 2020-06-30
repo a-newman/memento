@@ -4,7 +4,7 @@ from torchvision.models import densenet121
 
 import config as cfg
 from kinetics_i3d_pytorch.src.i3dpt import I3D
-from model_utils import MemModelFields, ModelOutput
+from model_utils import MemCapModelFields, MemModelFields, ModelOutput
 
 
 def get_model(model_name, device):
@@ -90,25 +90,25 @@ class VideoStreamLSTM(nn.Module):
         self.base = HeadlessI3D.get_pretrained()
 
         # mem alpha branch
-        self.final_conv = self._unit_conv(in_dim=self.n_hidden_units,
-                                          out_dim=2)
+        self.final_conv = self._unit_conv(in_dim=self.feature_dim, out_dim=2)
         self.activation = nn.LeakyReLU()
 
         # captions branch
-        self.init_h = self._unit_conv(in_dim=self.n_hidden_units,
+        self.init_h = self._unit_conv(in_dim=self.feature_dim,
                                       out_dim=self.n_hidden_units)
-        self.init_c = self._unit_conv(in_dim=self.n_hidden_units,
+        self.init_c = self._unit_conv(in_dim=self.feature_dim,
                                       out_dim=self.n_hidden_units)
         # self.lstm = nn.LSTM(input_size=self.lstm_input_size,
         #                     hidden_size=self.n_hidden_units,
         #                     num_layers=2)
-        self.lstm_step = nn.LSTMCell()
-        # self.post_lstm_fc = nn.Linear(in_features=None,
-        #                               out_features=self.vocab_size)
+
+        # input_size must be the size of the input word vectors, i.e. size of
+        # the fasttext embedding
+        self.lstm_step = nn.LSTMCell(input_size=self.lstm_input_size,
+                                     hidden_size=self.n_hidden_units)
         self.cap_fc = nn.Linear(self.n_hidden_units, self.vocab_size)
         self.cap_dropout = nn.Dropout(p=self.dropout)
         self.cap_activation = nn.Softmax()
-        self.lstm_activation = nn.SoftMax()
 
     @staticmethod
     def _unit_conv(in_dim, out_dim):
@@ -117,7 +117,12 @@ class VideoStreamLSTM(nn.Module):
                          kernel_size=(1, 1, 1),
                          stride=(1, 1, 1))
 
-    def forward(self, x, cap_inp):
+    def forward(self, x,
+                label: ModelOutput[MemCapModelFields]) -> MemCapModelFields:
+
+        cap_inp = label['in_captions']
+        print("mem inp dtype", label['score'].dtype)
+
         features = self.base(x)
         batch_size = features.size(0)
 
@@ -125,10 +130,14 @@ class VideoStreamLSTM(nn.Module):
         mem_out = self.final_conv(features)
         mem_out = mem_out.squeeze(3).squeeze(3).mean(2)
         mem_out = self.activation(mem_out)
+        mem_scores = mem_out[:, 0]
+        alphas = mem_out[:, 1]
 
         # captions branch
-        h = self.init_h0(features)
-        c = self.init_c0(features)
+        h = self.init_h(features).squeeze(3).squeeze(3).mean(2)
+        print("h size", h.shape)
+        c = self.init_c(features).squeeze(3).squeeze(3).mean(2)
+        print("c size", c.shape)
         # cap dim seq_len, batch, input_size
         # cap_inp = cap
         # cap_out, (hn, cn) = self.lstm(cap_inp, (h0, c0))
@@ -136,19 +145,26 @@ class VideoStreamLSTM(nn.Module):
         predictions = torch.zeros(batch_size, self.max_caption_size,
                                   self.vocab_size).to(self.device)
 
+        # cap inp: batch x max_cap_len x vocab_embed_size
+        # = (b x 50 x 300)
+        print("cap inp size", cap_inp.shape)
+
         for i in range(self.max_caption_size):
-            inp = cap_inp[i]  # batch size, input size
+            inp = cap_inp[:, i, :]  # batch size, input size
             h, c = self.lstm_step(inp, (h, c))
             preds = self.cap_activation(self.cap_fc(self.cap_dropout(h)))
             predictions[:, i, :] = preds
 
-        mem_scores = mem_out[:, 0]
-        alphas = mem_out[:, 1]
-        captions = predictions
+        print("predictions", predictions)
 
-        return model_utils.MemModelCaptionsOutput.pred(mem_score=mem_scores,
-                                                       captions=captions,
-                                                       alpha=alphas)
+        data: MemCapModelFields = {
+            'score': mem_scores,
+            'alpha': alphas,
+            'in_captions': cap_inp,
+            'out_captions': predictions
+        }
+
+        return data
 
 
 class VideoStream(nn.Module):
@@ -161,7 +177,7 @@ class VideoStream(nn.Module):
                                     stride=(1, 1, 1))
         self.activation = nn.LeakyReLU()
 
-    def forward(self, x: torch.Tensor) -> MemModelFields:
+    def forward(self, x: torch.Tensor, *_) -> MemModelFields:
         out = self.base(x)
         out = self.final_conv(out)
         out = out.squeeze(3).squeeze(3).mean(2)

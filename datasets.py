@@ -2,6 +2,8 @@ import json
 import os
 import random
 
+import numpy as np
+
 import config as cfg
 from cap_utils import transform_caption
 from model_utils import MemCapModelFields, MemModelFields, ModelOutput
@@ -217,8 +219,12 @@ class MementoMemAlphaCapLabelSet(MementoLabelSet):
             vocab_size=cfg.VOCAB_SIZE)
 
         return ModelOutput({
-            'score': score,
-            'alpha': alpha,
-            'in_captions': cap_in,
-            'out_captions': cap_out
+            'score':
+            score,
+            'alpha':
+            alpha,
+            'in_captions':
+            cap_in.astype(np.float32, copy=False),
+            'out_captions':
+            cap_out.astype(np.float32, copy=False)
         })
