@@ -1,7 +1,7 @@
 import numbers
 import os
 import time
-from typing import Callable, List, Mapping, Optional
+from typing import Callable, Mapping, Optional, Union
 
 import fire
 import torch
@@ -14,7 +14,7 @@ import config as cfg
 import utils
 from data_loader import get_dataset
 from evaluate import rc
-from losses import MemAlphaLoss
+from losses import MemAlphaLoss, MemMSELoss
 from model_utils import MemModelFields, ModelOutput
 from models import get_model
 
@@ -41,7 +41,7 @@ def save_ckpt(savepath,
 
 def main(verbose: int = 1,
          print_freq: int = 100,
-         restore: bool = True,
+         restore: Union[bool, str] = True,
          val_freq: int = 1,
          run_id: str = "model",
          dset_name: str = "memento_frames",
@@ -82,8 +82,8 @@ def main(verbose: int = 1,
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                    step_size=3,
                                                    gamma=0.1)
-    criterion = MemAlphaLoss(device=device)
-    # criterion = MSELoss()
+    # criterion = MemAlphaLoss(device=device)
+    criterion = MemMSELoss()
 
     initial_epoch = 0
     iteration = 0
@@ -153,8 +153,7 @@ def main(verbose: int = 1,
                 y = y.to_device(device)
                 print("Y", y)
 
-                out = model(x)
-                print("out", out)
+                out = ModelOutput(model(x))
                 loss = criterion(out, y)
 
                 # I think this zeros out previous gradients (in case people
@@ -182,9 +181,10 @@ def main(verbose: int = 1,
                     preds: Optional[ModelOutput[MemModelFields]] = None
                     losses = []
 
-                    for i, (x, y) in tqdm(enumerate(test_dl),
-                                          total=len(test_ds) / batch_size):
+                    for i, (x, y_) in tqdm(enumerate(test_dl),
+                                           total=len(test_ds) / batch_size):
 
+                        y = ModelOutput(y_)
                         y_numpy = y.to_numpy()
 
                         if labels is None:
@@ -193,9 +193,9 @@ def main(verbose: int = 1,
                             labels.merge(y_numpy)
 
                         x = x.to(device)
-                        y = y.to_device(y)
+                        y = y.to_device(device)
 
-                        out = model(x)
+                        out = ModelOutput(model(x))
                         out_numpy = out.to_device('cpu').to_numpy()
                         preds = out_numpy if preds is None else preds.merge(
                             out_numpy)

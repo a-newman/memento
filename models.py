@@ -161,13 +161,11 @@ class VideoStream(nn.Module):
                                     stride=(1, 1, 1))
         self.activation = nn.LeakyReLU()
 
-    def forward(self, x: torch.Tensor) -> ModelOutput[MemModelFields]:
+    def forward(self, x: torch.Tensor) -> MemModelFields:
         out = self.base(x)
         out = self.final_conv(out)
         out = out.squeeze(3).squeeze(3).mean(2)
         out = self.activation(out)
-
-        # return out
 
         mem_scores = out[:, 0]
         alphas = out[:, 1]
@@ -175,11 +173,6 @@ class VideoStream(nn.Module):
         data: MemModelFields = {'score': mem_scores, 'alpha': alphas}
 
         return data
-
-        # ret = ModelOutput(data)
-        # print("RET", ret)
-
-        # return ret
 
 
 class HeadlessI3D(I3D):

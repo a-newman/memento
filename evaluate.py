@@ -2,7 +2,6 @@ import json
 import os
 
 import fire
-import numpy as np
 import torch
 from scipy.stats import spearmanr
 from torch import nn
@@ -12,12 +11,16 @@ from tqdm import tqdm
 import config as cfg
 import utils
 from data_loader import get_dataset
+from model_utils import MemModelFields, ModelOutput
 from models import get_model
 
 
-def rc(labels, preds, _, verbose=True):
-    mem_scores_true = np.array(labels)[:, 0]
-    mem_scores_pred = np.array(preds)[:, 0]
+def rc(labels: ModelOutput[MemModelFields],
+       preds: ModelOutput[MemModelFields],
+       _,
+       verbose=True):
+    mem_scores_true = labels['score']
+    mem_scores_pred = preds['score']
     val = spearmanr(mem_scores_true, mem_scores_pred)
 
     return val.correlation
