@@ -8,9 +8,9 @@ from model_utils import MemModelFields, ModelOutput
 class MemAlphaLoss(nn.Module):
     def __init__(self,
                  device,
-                 mse_mem_coeff: float = 10,
-                 mse_alpha_coeff: float = 1,
-                 decay_curve_coeff: float = .1,
+                 mse_mem_coeff: float = 1,
+                 mse_alpha_coeff: float = .1,
+                 decay_curve_coeff: float = .01,
                  npoints: int = 100):
         super(MemAlphaLoss, self).__init__()
         self.mse_mem_coeff = mse_mem_coeff
