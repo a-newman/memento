@@ -1,10 +1,10 @@
 import json
 import os
-import pickle
 import random
 
 import config as cfg
 from cap_utils import transform_caption
+from model_utils import MemCapModelFields, MemModelFields, ModelOutput
 from torchvideo.datasets import LabelSet, VideoDataset
 from torchvideo.internal.readers import default_loader
 from torchvideo.samplers import _default_sampler
@@ -173,12 +173,13 @@ class MementoMemAlphaLabelSet(MementoLabelSet):
         MementoLabelSet.__init__(self, split)
         self.factor = factor
 
-    def __getitem__(self, vidpath):
+    def __getitem__(self, vidpath) -> ModelOutput[MemModelFields]:
         viddata = self.data_for_vidpath(vidpath)
 
-        return [
-            self.factor * viddata['mem_score'], self.factor * viddata['alpha']
-        ]
+        mem_score = self.factor * viddata['mem_score']
+        alpha = self.factor * viddata['alpha']
+
+        return ModelOutput({'score': mem_score, 'alpha': alpha})
 
 
 class MementoMemAlphaCapLabelSet(MementoLabelSet):
@@ -195,11 +196,10 @@ class MementoMemAlphaCapLabelSet(MementoLabelSet):
         with open(caps_path) as infile:
             self.cap_data = json.load(infile)
 
-    def __getitem__(self, vidpath):
+    def __getitem__(self, vidpath) -> ModelOutput[MemCapModelFields]:
         viddata = self.data_for_vidpath(vidpath)
-        mem_data = [
-            self.factor * viddata['mem_score'], self.factor * viddata['alpha']
-        ]
+        score, alpha = self.factor * viddata[
+            'mem_score'], self.factor * viddata['alpha']
 
         cap_data = self.cap_data[self.vidname_from_path(vidpath)]
         cap_i = random.randint(0, len(cap_data['indexed_captions']) - 1)
@@ -216,4 +216,9 @@ class MementoMemAlphaCapLabelSet(MementoLabelSet):
             max_cap_len=cfg.MAX_CAP_LEN,
             vocab_size=cfg.VOCAB_SIZE)
 
-        return mem_data, cap_in, cap_out
+        return ModelOutput({
+            'score': score,
+            'alpha': alpha,
+            'in_captions': cap_in,
+            'out_captions': cap_out
+        })

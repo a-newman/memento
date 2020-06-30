@@ -4,6 +4,7 @@ from torchvision.models import densenet121
 
 import config as cfg
 from kinetics_i3d_pytorch.src.i3dpt import I3D
+from model_utils import MemModelFields, ModelOutput
 
 
 def get_model(model_name, device):
@@ -141,7 +142,13 @@ class VideoStreamLSTM(nn.Module):
             preds = self.cap_activation(self.cap_fc(self.cap_dropout(h)))
             predictions[:, i, :] = preds
 
-        return mem_out, predictions
+        mem_scores = mem_out[:, 0]
+        alphas = mem_out[:, 1]
+        captions = predictions
+
+        return model_utils.MemModelCaptionsOutput.pred(mem_score=mem_scores,
+                                                       captions=captions,
+                                                       alpha=alphas)
 
 
 class VideoStream(nn.Module):
@@ -154,13 +161,25 @@ class VideoStream(nn.Module):
                                     stride=(1, 1, 1))
         self.activation = nn.LeakyReLU()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> ModelOutput[MemModelFields]:
         out = self.base(x)
         out = self.final_conv(out)
         out = out.squeeze(3).squeeze(3).mean(2)
         out = self.activation(out)
 
-        return out
+        # return out
+
+        mem_scores = out[:, 0]
+        alphas = out[:, 1]
+
+        data: MemModelFields = {'score': mem_scores, 'alpha': alphas}
+
+        return data
+
+        # ret = ModelOutput(data)
+        # print("RET", ret)
+
+        # return ret
 
 
 class HeadlessI3D(I3D):

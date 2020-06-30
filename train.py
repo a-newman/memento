@@ -1,6 +1,7 @@
 import numbers
 import os
 import time
+from typing import Callable, List, Mapping, Optional
 
 import fire
 import torch
@@ -14,6 +15,7 @@ import utils
 from data_loader import get_dataset
 from evaluate import rc
 from losses import MemAlphaLoss
+from model_utils import MemModelFields, ModelOutput
 from models import get_model
 
 
@@ -37,16 +39,17 @@ def save_ckpt(savepath,
         }, savepath)
 
 
-def main(verbose=1,
-         print_freq=100,
-         restore=True,
-         val_freq=1,
-         run_id="model",
-         dset_name="memento_frames",
-         model_name="frames",
-         freeze_encoder_until_it=1000,
-         additional_metrics={'rc': rc},
-         debug_n=None):
+def main(verbose: int = 1,
+         print_freq: int = 100,
+         restore: bool = True,
+         val_freq: int = 1,
+         run_id: str = "model",
+         dset_name: str = "memento_frames",
+         model_name: str = "frames",
+         freeze_encoder_until_it: int = 1000,
+         additional_metrics: Mapping[str, Callable] = {'rc': rc},
+         debug_n: Optional[int] = None,
+         batch_size: int = cfg.BATCH_SIZE) -> None:
 
     print("TRAINING MODEL {} ON DATASET {}".format(model_name, dset_name))
 
@@ -110,11 +113,11 @@ def main(verbose=1,
         test_ds = Subset(test_ds, range(debug_n))
 
     train_dl = DataLoader(train_ds,
-                          batch_size=cfg.BATCH_SIZE,
+                          batch_size=batch_size,
                           shuffle=True,
                           num_workers=cfg.NUM_WORKERS)
     test_dl = DataLoader(test_ds,
-                         batch_size=cfg.BATCH_SIZE,
+                         batch_size=batch_size,
                          shuffle=False,
                          num_workers=cfg.NUM_WORKERS)
 
@@ -131,8 +134,10 @@ def main(verbose=1,
 
             print("Epoch {}".format(epoch))
 
-            for i, (x, y) in tqdm(enumerate(train_dl),
-                                  total=len(train_ds) / cfg.BATCH_SIZE):
+            for i, (x, y_) in tqdm(enumerate(train_dl),
+                                   total=len(train_ds) / batch_size):
+
+                y: ModelOutput[MemModelFields] = ModelOutput(y_)
                 iteration += 1
 
                 if not unfrozen and iteration > freeze_encoder_until_it:
@@ -145,9 +150,11 @@ def main(verbose=1,
                 logger.add_scalar('DataTime', time.time() - start, iteration)
 
                 x = x.to(device)
-                y = y.to(device)
+                y = y.to_device(device)
+                print("Y", y)
 
                 out = model(x)
+                print("out", out)
                 loss = criterion(out, y)
 
                 # I think this zeros out previous gradients (in case people
@@ -171,19 +178,28 @@ def main(verbose=1,
 
                 with torch.no_grad():
 
-                    labels = []
-                    preds = []
+                    labels: Optional[ModelOutput[MemModelFields]] = None
+                    preds: Optional[ModelOutput[MemModelFields]] = None
                     losses = []
 
                     for i, (x, y) in tqdm(enumerate(test_dl),
-                                          total=len(test_ds) / cfg.BATCH_SIZE):
+                                          total=len(test_ds) / batch_size):
 
-                        labels.extend(y.numpy())
+                        y_numpy = y.to_numpy()
+
+                        if labels is None:
+                            labels = y_numpy
+                        else:
+                            labels.merge(y_numpy)
+
                         x = x.to(device)
-                        y = y.to(device)
+                        y = y.to_device(y)
 
                         out = model(x)
-                        preds.extend(out.cpu().numpy())
+                        out_numpy = out.to_device('cpu').to_numpy()
+                        preds = out_numpy if preds is None else preds.merge(
+                            out_numpy)
+
                         loss = criterion(out, y)
 
                         logger.add_scalar('ValLoss', loss, iteration)
