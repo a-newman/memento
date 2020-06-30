@@ -35,7 +35,7 @@ class RescaleInRange(Transform):
         return (frames - minval) * (spread / current_spread) + self.lower
 
 
-class ApplyToKeys(object):
+class ApplyToKeysTransform(object):
     """Applies transforms to the keys of a ModelOutput obj"""
     def __init__(self, transform):
         self.transform = transform
@@ -44,6 +44,9 @@ class ApplyToKeys(object):
         data = {k: self.transform([v])[0] for k, v in sample.items()}
 
         return ModelOutput(data)
+
+    def __repr__(self):
+        return "{}({})".format(self.__class__.__name__, str(self.transform))
 
 
 IMAGE_TRAIN_TRANSFORMS = T.Compose([
@@ -62,7 +65,7 @@ IMAGE_TEST_TRANSFORMS = T.Compose([
     T.ToTensor(),
     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
-Y_TRANSFORMS = ApplyToKeys(torch.FloatTensor)
+Y_TRANSFORMS = ApplyToKeysTransform(torch.FloatTensor)
 # Y_TRANSFORMS = None
 VIDEO_TRAIN_TRANSFORMS = T.Compose([
     ResizeVideo(cfg.RESIZE),
