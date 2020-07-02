@@ -121,7 +121,6 @@ class VideoStreamLSTM(nn.Module):
                 label: ModelOutput[MemCapModelFields]) -> MemCapModelFields:
 
         cap_inp = label['in_captions']
-        print("mem inp dtype", label['score'].dtype)
 
         features = self.base(x)
         batch_size = features.size(0)
@@ -135,9 +134,7 @@ class VideoStreamLSTM(nn.Module):
 
         # captions branch
         h = self.init_h(features).squeeze(3).squeeze(3).mean(2)
-        print("h size", h.shape)
         c = self.init_c(features).squeeze(3).squeeze(3).mean(2)
-        print("c size", c.shape)
         # cap dim seq_len, batch, input_size
         # cap_inp = cap
         # cap_out, (hn, cn) = self.lstm(cap_inp, (h0, c0))
@@ -147,15 +144,12 @@ class VideoStreamLSTM(nn.Module):
 
         # cap inp: batch x max_cap_len x vocab_embed_size
         # = (b x 50 x 300)
-        print("cap inp size", cap_inp.shape)
 
         for i in range(self.max_caption_size):
             inp = cap_inp[:, i, :]  # batch size, input size
             h, c = self.lstm_step(inp, (h, c))
             preds = self.cap_activation(self.cap_fc(self.cap_dropout(h)))
             predictions[:, i, :] = preds
-
-        print("predictions", predictions)
 
         data: MemCapModelFields = {
             'score': mem_scores,

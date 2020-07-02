@@ -2,7 +2,36 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from model_utils import MemModelFields, ModelOutput
+from model_utils import MemCapModelFields, MemModelFields, ModelOutput
+
+
+class CaptionsLoss(nn.Module):
+    def __init__(self, device='cuda'):
+        super(CaptionsLoss, self).__init__()
+        self.device = device
+
+    def forward(self, y_pred: ModelOutput[MemCapModelFields],
+                y_true: ModelOutput[MemCapModelFields]):
+        cap_pred = y_pred['out_captions']
+
+        # TODO: we have pre-padded the sequence. Would be more sophisticated
+        # to skip the pre-padding and let torch handle the packing for
+        # us
+        b, t, d = cap_pred.shape
+        lens = t * torch.ones(b)
+        lens = lens.to(self.device)
+        cap_pred_seq = nn.utils.rnn.pack_padded_sequence(cap_pred,
+                                                         lens,
+                                                         batch_first=True)
+
+        cap_true = y_true['out_captions']
+        target = torch.argmax(cap_true, dim=2)
+        target_seq = nn.utils.rnn.pack_padded_sequence(target,
+                                                       lens,
+                                                       batch_first=True)
+
+        return nn.functional.cross_entropy(input=cap_pred_seq.data,
+                                           target=target_seq.data)
 
 
 class MemMSELoss(nn.Module):

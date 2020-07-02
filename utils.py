@@ -29,3 +29,11 @@ def makedirs(dirs):
             os.makedirs(d)
         except FileExistsError:
             pass
+
+
+def log_loss(logger, loss, loss_values, iteration, phase='train'):
+    logger.add_scalar('{}Loss'.format(phase.title()), loss.item(), iteration)
+
+    for name, l in loss_values.items():
+        logger.add_scalar('{}Loss_{}'.format(phase.title(), name), l.item(),
+                          iteration)

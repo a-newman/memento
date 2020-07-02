@@ -14,7 +14,7 @@ import config as cfg
 import utils
 from data_loader import get_dataset
 from evaluate import rc
-from losses import MemAlphaLoss, MemMSELoss
+from losses import CaptionsLoss, MemAlphaLoss, MemMSELoss
 from model_utils import MemModelFields, ModelOutput
 from models import get_model
 
@@ -83,7 +83,10 @@ def main(verbose: int = 1,
                                                    step_size=3,
                                                    gamma=0.1)
     # criterion = MemAlphaLoss(device=device)
-    criterion = MemMSELoss()
+    # criterion = MemMSELoss()
+    # criterion = lambda x, y: MemMSELoss()(x, y) +
+    # CaptionsLoss(device=device)(x, y)
+    losses = {'mem_mse': MemMSELoss(), 'captions': CaptionsLoss(device=device)}
 
     initial_epoch = 0
     iteration = 0
@@ -153,7 +156,9 @@ def main(verbose: int = 1,
                 y = y.to_device(device)
 
                 out = ModelOutput(model(x, y))
-                loss = criterion(out, y)
+                loss_vals = {name: l(out, y) for name, l in losses.items()}
+                loss = torch.stack(list(loss_vals.values())).sum()
+                # loss = criterion(out, y)
 
                 # I think this zeros out previous gradients (in case people
                 # want to accumulate gradients?)
@@ -162,7 +167,7 @@ def main(verbose: int = 1,
                 optimizer.step()
 
                 # logging
-                logger.add_scalar('TrainLoss', loss.item(), iteration)
+                utils.log_loss(logger, loss, loss_vals, iteration)
                 logger.add_scalar('ItTime', time.time() - start, iteration)
                 start = time.time()
 
@@ -178,7 +183,7 @@ def main(verbose: int = 1,
 
                     labels: Optional[ModelOutput[MemModelFields]] = None
                     preds: Optional[ModelOutput[MemModelFields]] = None
-                    losses = []
+                    val_losses = []
 
                     for i, (x, y_) in tqdm(enumerate(test_dl),
                                            total=len(test_ds) / batch_size):
@@ -199,10 +204,18 @@ def main(verbose: int = 1,
                         preds = out_numpy if preds is None else preds.merge(
                             out_numpy)
 
-                        loss = criterion(out, y)
+                        loss_vals = {
+                            name: l(out, y)
+                            for name, l in losses.items()
+                        }
+                        loss = torch.stack(list(loss_vals.values())).sum()
+                        utils.log_loss(logger,
+                                       loss,
+                                       loss_vals,
+                                       iteration,
+                                       phase='val')
 
-                        logger.add_scalar('ValLoss', loss, iteration)
-                        losses.append(loss)
+                        val_losses.append(loss)
 
                     print("Calculating validation metric...")
                     metrics = {
@@ -216,7 +229,7 @@ def main(verbose: int = 1,
                             logger.add_scalar('Metric_{}'.format(k), v,
                                               iteration)
 
-                    metrics['total_val_loss'] = sum(losses)
+                    metrics['total_val_loss'] = sum(val_losses)
 
                     ckpt_path = os.path.join(
                         ckpt_savedir, utils.get_ckpt_path(epoch, metrics))
