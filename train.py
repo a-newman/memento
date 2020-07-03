@@ -46,10 +46,11 @@ def main(verbose: int = 1,
          run_id: str = "model",
          dset_name: str = "memento_frames",
          model_name: str = "frames",
-         freeze_encoder_until_it: int = 1000,
+         freeze_until_it: int = 1000,
          additional_metrics: Mapping[str, Callable] = {'rc': rc},
          debug_n: Optional[int] = None,
-         batch_size: int = cfg.BATCH_SIZE) -> None:
+         batch_size: int = cfg.BATCH_SIZE,
+         require_strict_model_load: bool = False) -> None:
 
     print("TRAINING MODEL {} ON DATASET {}".format(model_name, dset_name))
 
@@ -100,8 +101,10 @@ def main(verbose: int = 1,
             print("Restoring weights from {}".format(ckpt_path))
 
             ckpt = torch.load(ckpt_path)
-            model.load_state_dict(ckpt['model_state_dict'])
-            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            utils.try_load_state_dict(model, ckpt['model_state_dict'],
+                                      require_strict_model_load)
+            utils.try_load_optim_state(optimizer, ckpt['optimizer_state_dict'],
+                                       require_strict_model_load)
             initial_epoch = ckpt['epoch']
             iteration = ckpt['it']
     else:
@@ -143,7 +146,7 @@ def main(verbose: int = 1,
                 y: ModelOutput[MemModelFields] = ModelOutput(y_)
                 iteration += 1
 
-                if not unfrozen and iteration > freeze_encoder_until_it:
+                if not unfrozen and iteration > freeze_until_it:
                     print("Unfreezing encoder")
                     unfrozen = True
 
@@ -155,7 +158,7 @@ def main(verbose: int = 1,
                 x = x.to(device)
                 y = y.to_device(device)
 
-                out = ModelOutput(model(x, y))
+                out = ModelOutput(model(x, y.get_data()))
                 loss_vals = {name: l(out, y) for name, l in losses.items()}
                 loss = torch.stack(list(loss_vals.values())).sum()
                 # loss = criterion(out, y)
@@ -191,15 +194,13 @@ def main(verbose: int = 1,
                         y = ModelOutput(y_)
                         y_numpy = y.to_numpy()
 
-                        if labels is None:
-                            labels = y_numpy
-                        else:
-                            labels.merge(y_numpy)
+                        labels = y_numpy if preds is None else labels.merge(
+                            y_numpy)
 
                         x = x.to(device)
                         y = y.to_device(device)
 
-                        out = ModelOutput(model(x, y))
+                        out = ModelOutput(model(x, y.get_data()))
                         out_numpy = out.to_device('cpu').to_numpy()
                         preds = out_numpy if preds is None else preds.merge(
                             out_numpy)
@@ -218,6 +219,8 @@ def main(verbose: int = 1,
                         val_losses.append(loss)
 
                     print("Calculating validation metric...")
+                    # print("preds", {k: v.shape for k, v in preds.items()})
+                    # assert False
                     metrics = {
                         fname: f(labels, preds, losses)
                         for fname, f in additional_metrics.items()

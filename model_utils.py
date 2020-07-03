@@ -1,6 +1,7 @@
 from collections import abc
-from typing import Any, Generic, List, Mapping, TypedDict, TypeVar, Union
+from typing import Generic, List, Mapping, TypedDict, TypeVar, Union
 
+import numpy as np
 import torch
 
 T = TypeVar('T', bound=Mapping)
@@ -22,6 +23,9 @@ class ModelOutput(abc.Mapping, Generic[T]):
     def __repr__(self):
         return "{}(data={})".format(self.__class__.__name__, str(self.data))
 
+    def get_data(self):
+        return self.data
+
     @classmethod
     def _factory(cls, data: T):
         return cls(data=data)
@@ -40,8 +44,12 @@ class ModelOutput(abc.Mapping, Generic[T]):
         return self._factory(data)
 
     def merge(self, other: 'ModelOutput[T]'):
-        for k in self.data.keys():
-            self.data[k].extend(other.data[k])
+        newdata = {
+            k: np.concatenate((v, other.data[k]), axis=0)
+            for k, v in self.data.items()
+        }
+
+        return self._factory(newdata)  # type: ignore
 
 
 class MemModelFields(TypedDict):

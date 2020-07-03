@@ -77,7 +77,8 @@ class VideoStreamLSTM(nn.Module):
                  device,
                  max_caption_size=cfg.MAX_CAP_LEN,
                  vocab_size=cfg.VOCAB_SIZE,
-                 n_hidden_units=512):
+                 n_hidden_units=512,
+                 freeze_encoder=True):
         super(VideoStreamLSTM, self).__init__()
         self.max_caption_size = max_caption_size
         self.vocab_size = vocab_size
@@ -86,6 +87,7 @@ class VideoStreamLSTM(nn.Module):
         self.lstm_input_size = 300
         self.dropout = 0.5
         self.device = device
+        self.freeze_encoder = freeze_encoder
 
         self.base = HeadlessI3D.get_pretrained()
 
@@ -110,6 +112,10 @@ class VideoStreamLSTM(nn.Module):
         self.cap_dropout = nn.Dropout(p=self.dropout)
         self.cap_activation = nn.Softmax()
 
+        if self.freeze_encoder:
+            for param in self.base.parameters():
+                param.requires_grad = False
+
     @staticmethod
     def _unit_conv(in_dim, out_dim):
         return nn.Conv3d(in_channels=in_dim,
@@ -120,9 +126,12 @@ class VideoStreamLSTM(nn.Module):
     def forward(self, x,
                 label: ModelOutput[MemCapModelFields]) -> MemCapModelFields:
 
+        # print("x shape", x.shape)
         cap_inp = label['in_captions']
+        # print("cap inp shape", cap_inp.shape)
 
         features = self.base(x)
+        # print("features shape", features.shape)
         batch_size = features.size(0)
 
         # mem-alpha branch
@@ -134,10 +143,9 @@ class VideoStreamLSTM(nn.Module):
 
         # captions branch
         h = self.init_h(features).squeeze(3).squeeze(3).mean(2)
+        # print("h shape", h.shape)
         c = self.init_c(features).squeeze(3).squeeze(3).mean(2)
         # cap dim seq_len, batch, input_size
-        # cap_inp = cap
-        # cap_out, (hn, cn) = self.lstm(cap_inp, (h0, c0))
 
         predictions = torch.zeros(batch_size, self.max_caption_size,
                                   self.vocab_size).to(self.device)
@@ -147,6 +155,7 @@ class VideoStreamLSTM(nn.Module):
 
         for i in range(self.max_caption_size):
             inp = cap_inp[:, i, :]  # batch size, input size
+            # print("inp", inp.shape)
             h, c = self.lstm_step(inp, (h, c))
             preds = self.cap_activation(self.cap_fc(self.cap_dropout(h)))
             predictions[:, i, :] = preds

@@ -12,6 +12,10 @@ class CaptionsLoss(nn.Module):
 
     def forward(self, y_pred: ModelOutput[MemCapModelFields],
                 y_true: ModelOutput[MemCapModelFields]):
+
+        # if not (y_pred.get('out_captions', False)
+        #         and y_true.get('out_captions', False)):
+        #     return 0
         cap_pred = y_pred['out_captions']
 
         # TODO: we have pre-padded the sequence. Would be more sophisticated

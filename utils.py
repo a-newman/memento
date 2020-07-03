@@ -37,3 +37,29 @@ def log_loss(logger, loss, loss_values, iteration, phase='train'):
     for name, l in loss_values.items():
         logger.add_scalar('{}Loss_{}'.format(phase.title(), name), l.item(),
                           iteration)
+
+
+def try_load_state_dict(model, state_dict, require_use_strict):
+    try:
+        model.load_state_dict(state_dict, strict=True)
+    except RuntimeError as re:
+        if require_use_strict:
+            raise (re)
+        else:
+            print("WARNING! Error loading model with strict set")
+            print(re)
+            print("Trying with strict not set...")
+            model.load_state_dict(state_dict, strict=False)
+            print("Ok.")
+
+
+def try_load_optim_state(optimizer, state_dict, require_strict):
+    try:
+        optimizer.load_state_dict(state_dict)
+    except ValueError as ve:
+        if require_strict:
+            raise ve
+        else:
+            print("WARNING! Unable to restore the optimizer state dict")
+            print(ve)
+            print("Skipping.")
