@@ -194,7 +194,7 @@ def main(verbose: int = 1,
                         y = ModelOutput(y_)
                         y_numpy = y.to_numpy()
 
-                        labels = y_numpy if preds is None else labels.merge(
+                        labels = y_numpy if labels is None else labels.merge(
                             y_numpy)
 
                         x = x.to(device)

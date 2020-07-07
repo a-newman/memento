@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Callable, Mapping, Optional
 
 import fire
 import torch
@@ -27,13 +28,14 @@ def rc(labels: ModelOutput[MemModelFields],
 
 
 def predict(ckpt_path,
-            metrics={'rc': rc},
-            num_workers=20,
-            use_gpu=True,
-            model_name="frames",
-            dset_name="memento_frames",
-            preds_savepath=None,
-            use_val=False):
+            metrics: Mapping[str, Callable] = {'rc': rc},
+            num_workers: int = 20,
+            use_gpu: bool = True,
+            model_name: str = "frames",
+            dset_name: str = "memento_frames",
+            preds_savepath: Optional[str] = None,
+            use_val: bool = False,
+            debug_n: Optional[int] = None):
 
     print("ckpt path: {}".format(ckpt_path))
 
@@ -51,7 +53,7 @@ def predict(ckpt_path,
     ckpt = torch.load(ckpt_path)
 
     # model
-    model = get_model(model_name)
+    model = get_model(model_name, device)
     model = nn.DataParallel(model)
     model.load_state_dict(ckpt['model_state_dict'])
 
@@ -67,29 +69,37 @@ def predict(ckpt_path,
         raise ValueError("No {} set available for this dataset.".format(
             "val" if use_val else "test"))
 
-    # ds = Subset(ds, range(10))
+    if debug_n is not None:
+        ds = Subset(ds, range(debug_n))
+
     dl = DataLoader(ds,
                     batch_size=cfg.BATCH_SIZE,
                     shuffle=False,
                     num_workers=num_workers)
 
-    preds = []
-    labels = []
+    preds: Optional[ModelOutput] = None
+    labels: Optional[ModelOutput] = None
     with torch.no_grad():
-        for i, (x, y) in tqdm(enumerate(dl), total=len(ds) / cfg.BATCH_SIZE):
-            labels.extend(y.numpy().tolist())
+        for i, (x, y_) in tqdm(enumerate(dl), total=len(ds) / cfg.BATCH_SIZE):
+
+            y: ModelOutput[MemModelFields] = ModelOutput(y_)
+            y_list = y.to_numpy()
+            labels = y_list if labels is None else labels.merge(y_list)
+
             x = x.to(device)
-            y = y.to(device)
-            out = model(x)
-            preds.extend(out.cpu().numpy().tolist())
+            y = y.to_device(device)
+            out = ModelOutput(model(x, y.get_data()))
+
+            out_list = out.to_device('cpu').to_numpy()
+            preds = out_list if preds is None else preds.merge(out_list)
 
     metrics = {fname: f(labels, preds, None) for fname, f in metrics.items()}
     print("METRICS", metrics)
 
     data = {
         'ckpt': ckpt_path,
-        'preds': preds,
-        'labels': labels,
+        'preds': preds.to_list().get_data(),
+        'labels': labels.to_list().get_data(),
         'metrics': metrics
     }
 
