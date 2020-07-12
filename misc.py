@@ -4,8 +4,26 @@ import os
 import numpy as np
 from PIL import Image
 from torchvideo.datasets import LabelSet, VideoFolderDataset
+from torchvideo.transforms import Transform
 
 import config as cfg
+
+class ChannelLast(Transform):
+    def _gen_params(self, frames):
+        return None
+
+    def _transform(self, frames, params):
+        # c, nframes, h, w
+        # instead make it: frames, h, w, c
+        tensor_ndim = len(frames.size())
+
+        if tensor_ndim != 4:
+            raise ValueError("Expected 4d tensor, but got shape {}".format(
+                frames.shape))
+
+        frames = frames.permute(1, 2, 3, 0)
+
+        return frames
 
 
 class MementoLabelSet(LabelSet):
