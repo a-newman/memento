@@ -1,8 +1,13 @@
+import os
+
 LAMEM_ROOT = "/home/anelise/scratch/datasets/LaMem"
 MEMENTO_ROOT = "/home/anelise/datasets/memento/release_v1"
 MEMENTO_METADATA_PATH = "memento_metadata.json"
 MEMENTO_CAPTIONS_PATH = "/home/anelise/datasets/memento/captions/cutoff_freq_10/"
 MEMENTO_CAPTIONS_DATA = "memento_captions.json"
+MEMENTO_CAPTIONS_EMBEDDING = os.path.join(MEMENTO_CAPTIONS_PATH,
+                                          "vocab_embedding.json")
+MEMENTO_VOCAB = os.path.join(MEMENTO_CAPTIONS_PATH, "vocab.json")
 
 BATCH_SIZE = 32
 NUM_WORKERS = 20

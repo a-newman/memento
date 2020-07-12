@@ -189,14 +189,35 @@ class MementoMemAlphaCapLabelSet(MementoLabelSet):
         MementoLabelSet.__init__(self, split)
         self.factor = factor
 
-        with open(
-                os.path.join(cfg.MEMENTO_CAPTIONS_PATH,
-                             "vocab_embedding.json")) as infile:
+        with open(cfg.MEMENTO_CAPTIONS_EMBEDDING) as infile:
             self.word_embedding = json.load(infile)
 
         caps_path = cfg.MEMENTO_CAPTIONS_DATA
         with open(caps_path) as infile:
             self.cap_data = json.load(infile)
+
+    def get_full_cap_data(self, vidpath):
+        cap_data = self.cap_data[self.vidname_from_path(vidpath)]
+        cap_i = random.randint(0, len(cap_data['indexed_captions']) - 1)
+        cap, tokenized_cap = cap_data['indexed_captions'][cap_i], cap_data[
+            'tokenized_captions'][cap_i]
+
+        cap_in, cap_out = transform_caption(
+            cap,
+            tokenized_cap,
+            input_format="embedding_list",
+            caption_format="one_hot_list",
+            add_padding=True,
+            word_embeddings=self.word_embedding,
+            max_cap_len=cfg.MAX_CAP_LEN,
+            vocab_size=cfg.VOCAB_SIZE)
+
+        return {
+            'in': cap_in,
+            'out': cap_out,
+            'indexed': cap,
+            'tokenized': tokenized_cap
+        }
 
     def __getitem__(self, vidpath) -> ModelOutput[MemCapModelFields]:
         viddata = self.data_for_vidpath(vidpath)
@@ -226,5 +247,5 @@ class MementoMemAlphaCapLabelSet(MementoLabelSet):
             'in_captions':
             cap_in.astype(np.float32, copy=False),
             'out_captions':
-            cap_out.astype(np.float32, copy=False)
+            cap_out.astype(np.float32, copy=False),
         })

@@ -6,16 +6,19 @@ from model_utils import MemCapModelFields, MemModelFields, ModelOutput
 
 
 class CaptionsLoss(nn.Module):
-    def __init__(self, device='cuda'):
+    def __init__(self, device='cuda', weight=100):
         super(CaptionsLoss, self).__init__()
         self.device = device
+        self.weight = weight
 
     def forward(self, y_pred: ModelOutput[MemCapModelFields],
                 y_true: ModelOutput[MemCapModelFields]):
 
-        # if not (y_pred.get('out_captions', False)
-        #         and y_true.get('out_captions', False)):
-        #     return 0
+        if not (y_pred.get('out_captions', False)
+                and y_true.get('out_captions', False)):
+
+            return torch.tensor(0, dtype=torch.float32).to(self.device)
+
         cap_pred = y_pred['out_captions']
 
         # TODO: we have pre-padded the sequence. Would be more sophisticated
@@ -34,8 +37,8 @@ class CaptionsLoss(nn.Module):
                                                        lens,
                                                        batch_first=True)
 
-        return nn.functional.cross_entropy(input=cap_pred_seq.data,
-                                           target=target_seq.data)
+        return self.weight * nn.functional.cross_entropy(
+            input=cap_pred_seq.data, target=target_seq.data)
 
 
 class MemMSELoss(nn.Module):
@@ -80,13 +83,8 @@ class MemAlphaLoss(nn.Module):
         alpha_pred = y_pred['alpha']
         # mem_pred = y_pred[:, 0]
         # alpha_pred = y_pred[:, 1]
-        print("MEM PRED", mem_pred)
-        print("MEM TRUE", mem_true)
-
         mse_mem = nn.functional.mse_loss(mem_pred, mem_true)
         mse_alpha = nn.functional.mse_loss(alpha_pred, alpha_true)
-        print("mse_mem", mse_mem)
-        print("mse_alpha", mse_alpha)
 
         # calculate points along the decay curve
         batch_size = list(mem_pred.shape)[0]
@@ -101,7 +99,6 @@ class MemAlphaLoss(nn.Module):
         decay_curve_pred = alpha_pred * (lags - 80.) + mem_pred
 
         decay_mse = nn.functional.mse_loss(decay_curve_pred, decay_curve_true)
-        print("decay_mse", decay_mse)
 
         return (self.mse_mem_coeff *
                 mse_mem) + (self.mse_alpha_coeff *

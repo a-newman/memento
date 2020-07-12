@@ -206,3 +206,22 @@ def prepare_as_triangular(cap, return_backward=False, embedding=None):
         return cap_matrix_forw, cap_matrix_backw
 
     return cap_matrix_forw
+
+
+def index_vocab():
+    with open(cfg.MEMENTO_VOCAB) as infile:
+        vocab = json.load(infile)
+    word2idx = {word: i + 1 for i, word in enumerate(vocab)}
+    idx2word = {i + 1: word for i, word in enumerate(vocab)}
+
+    return word2idx, idx2word
+
+
+def one_hot_to_token(one_hot, idx2word):
+    idx = np.argmax(one_hot)
+    print("shape one hot", one_hot.shape)
+    print("idx", idx)
+    token = idx2word[idx]
+    print("token", token)
+
+    return token
