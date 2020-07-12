@@ -14,8 +14,7 @@ class CaptionsLoss(nn.Module):
     def forward(self, y_pred: ModelOutput[MemCapModelFields],
                 y_true: ModelOutput[MemCapModelFields]):
 
-        if not (y_pred.get('out_captions', False)
-                and y_true.get('out_captions', False)):
+        if not ('out_captions' in y_pred and 'out_captions' in y_true):
 
             return torch.tensor(0, dtype=torch.float32).to(self.device)
 

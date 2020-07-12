@@ -110,7 +110,7 @@ class VideoStreamLSTM(nn.Module):
                                      hidden_size=self.n_hidden_units)
         self.cap_fc = nn.Linear(self.n_hidden_units, self.vocab_size)
         self.cap_dropout = nn.Dropout(p=self.dropout)
-        self.cap_activation = nn.Softmax(dim=1)
+        # self.cap_activation = nn.Softmax(dim=1)
 
         if self.freeze_encoder:
             for param in self.base.parameters():
@@ -140,7 +140,8 @@ class VideoStreamLSTM(nn.Module):
     def caption_decode_step(self, h, c, inputs):
         newh, newc = self.lstm_step(inputs, (h, c))
         logits = self.cap_fc(self.cap_dropout(h))
-        preds = self.cap_activation(logits)
+        # preds = self.cap_activation(logits)
+        preds = logits
 
         return newh, newc, preds
 
