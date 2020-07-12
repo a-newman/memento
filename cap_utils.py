@@ -213,6 +213,7 @@ def index_vocab():
         vocab = json.load(infile)
     word2idx = {word: i + 1 for i, word in enumerate(vocab)}
     idx2word = {i + 1: word for i, word in enumerate(vocab)}
+    idx2word[0] = "<end>"
 
     return word2idx, idx2word
 
@@ -225,3 +226,7 @@ def one_hot_to_token(one_hot, idx2word):
     print("token", token)
 
     return token
+
+
+def get_vocab_weights(eps=0.000001):
+    return eps + np.load(cfg.MEMENTO_VOCAB_WEIGHTS)

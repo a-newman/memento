@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+import cap_utils
 import config as cfg
 import utils
 from data_loader import get_dataset
@@ -50,7 +51,8 @@ def main(verbose: int = 1,
          additional_metrics: Mapping[str, Callable] = {'rc': rc},
          debug_n: Optional[int] = None,
          batch_size: int = cfg.BATCH_SIZE,
-         require_strict_model_load: bool = False) -> None:
+         require_strict_model_load: bool = False,
+         lr=0.01) -> None:
 
     print("TRAINING MODEL {} ON DATASET {}".format(model_name, dset_name))
 
@@ -77,7 +79,7 @@ def main(verbose: int = 1,
     # set up training
     # TODO better one?
     optimizer = torch.optim.SGD(model.parameters(),
-                                lr=0.01,
+                                lr=lr,
                                 momentum=0.9,
                                 weight_decay=0.0001)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
@@ -87,7 +89,13 @@ def main(verbose: int = 1,
     # criterion = MemMSELoss()
     # criterion = lambda x, y: MemMSELoss()(x, y) +
     # CaptionsLoss(device=device)(x, y)
-    losses = {'mem_mse': MemMSELoss(), 'captions': CaptionsLoss(device=device)}
+    losses = {
+        'mem_mse':
+        MemMSELoss(),
+        'captions':
+        CaptionsLoss(device=device,
+                     class_weights=cap_utils.get_vocab_weights())
+    }
 
     initial_epoch = 0
     iteration = 0
@@ -160,7 +168,12 @@ def main(verbose: int = 1,
 
                 out = ModelOutput(model(x, y.get_data()))
                 loss_vals = {name: l(out, y) for name, l in losses.items()}
-                loss = torch.stack(list(loss_vals.values())).sum()
+                # print("loss_vals", loss_vals)
+                loss = torch.stack(list(loss_vals.values()))
+
+                if verbose:
+                    print("stacked loss", loss)
+                loss = loss.sum()
                 # loss = criterion(out, y)
 
                 # I think this zeros out previous gradients (in case people
@@ -181,6 +194,7 @@ def main(verbose: int = 1,
             if (epoch + 1) % val_freq == 0:
                 print("Validating...")
                 model.eval()  # puts model in validation mode
+                val_iteration = iteration
 
                 with torch.no_grad():
 
@@ -190,6 +204,7 @@ def main(verbose: int = 1,
 
                     for i, (x, y_) in tqdm(enumerate(test_dl),
                                            total=len(test_ds) / batch_size):
+                        val_iteration += 1
 
                         y = ModelOutput(y_)
                         y_numpy = y.to_numpy()
@@ -213,7 +228,7 @@ def main(verbose: int = 1,
                         utils.log_loss(logger,
                                        loss,
                                        loss_vals,
-                                       iteration,
+                                       val_iteration,
                                        phase='val')
 
                         val_losses.append(loss)

@@ -91,6 +91,7 @@ def predict(ckpt_path,
 
     preds: Optional[ModelOutput] = None
     labels: Optional[ModelOutput] = None
+    captions = []
     with torch.no_grad():
         for i, (x, y_) in tqdm(enumerate(dl), total=len(ds) / batch_size):
 
@@ -105,8 +106,8 @@ def predict(ckpt_path,
                 assert batch_size == 1  # required for beam search
                 words = predict_captions_simple(model, x, device,
                                                 vocab_embedding, idx2word)
+                captions.append(words)
                 print(words)
-                assert False
 
             out = ModelOutput(model(x, y.get_data()))
 
@@ -122,6 +123,9 @@ def predict(ckpt_path,
         'labels': labels.to_list().get_data(),
         'metrics': metrics
     }
+
+    if should_predict_captions:
+        data['captions'] = captions
 
     with open(preds_savepath, "w") as outfile:
         print("Saving results")

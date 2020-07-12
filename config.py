@@ -8,6 +8,7 @@ MEMENTO_CAPTIONS_DATA = "memento_captions.json"
 MEMENTO_CAPTIONS_EMBEDDING = os.path.join(MEMENTO_CAPTIONS_PATH,
                                           "vocab_embedding.json")
 MEMENTO_VOCAB = os.path.join(MEMENTO_CAPTIONS_PATH, "vocab.json")
+MEMENTO_VOCAB_WEIGHTS = os.path.join(MEMENTO_CAPTIONS_PATH, "vocab_freq.npy")
 
 BATCH_SIZE = 32
 NUM_WORKERS = 20

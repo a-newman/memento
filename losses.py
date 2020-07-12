@@ -6,10 +6,14 @@ from model_utils import MemCapModelFields, MemModelFields, ModelOutput
 
 
 class CaptionsLoss(nn.Module):
-    def __init__(self, device='cuda', weight=100):
+    def __init__(self, device='cuda', weight=100, class_weights=None):
         super(CaptionsLoss, self).__init__()
         self.device = device
         self.weight = weight
+
+        if class_weights is not None:
+            self.class_weights = torch.tensor(class_weights,
+                                              dtype=torch.float32).to(device)
 
     def forward(self, y_pred: ModelOutput[MemCapModelFields],
                 y_true: ModelOutput[MemCapModelFields]):
@@ -36,8 +40,12 @@ class CaptionsLoss(nn.Module):
                                                        lens,
                                                        batch_first=True)
 
-        return self.weight * nn.functional.cross_entropy(
-            input=cap_pred_seq.data, target=target_seq.data)
+        args = {'input': cap_pred_seq.data, 'target': target_seq.data}
+
+        if self.class_weights is not None:
+            args['weight'] = self.class_weights
+
+        return self.weight * nn.functional.cross_entropy(**args)
 
 
 class MemMSELoss(nn.Module):
