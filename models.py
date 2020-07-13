@@ -68,7 +68,7 @@ class FramesStream(FramesModel):
 
 
 class VideoStreamLSTM(nn.Module):
-    """ IN PROGRESS
+    """
     See https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Image-Captioning/blob/master/models.py
     for implementation of show, attend, and tell
 
@@ -139,7 +139,7 @@ class VideoStreamLSTM(nn.Module):
 
     def caption_decode_step(self, h, c, inputs):
         newh, newc = self.lstm_step(inputs, (h, c))
-        logits = self.cap_fc(self.cap_dropout(h))
+        logits = self.cap_fc(self.cap_dropout(newh))
         # preds = self.cap_activation(logits)
         preds = logits
 

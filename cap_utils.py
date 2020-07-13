@@ -220,12 +220,13 @@ def index_vocab():
 
 def one_hot_to_token(one_hot, idx2word):
     idx = np.argmax(one_hot)
-    print("shape one hot", one_hot.shape)
-    print("idx", idx)
     token = idx2word[idx]
-    print("token", token)
 
     return token
+
+
+def index_to_token(index, idx2word):
+    return idx2word[index]
 
 
 def get_vocab_weights(eps=0.000001):

@@ -106,8 +106,11 @@ def predict(ckpt_path,
                 assert batch_size == 1  # required for beam search
                 words = predict_captions_simple(model, x, device,
                                                 vocab_embedding, idx2word)
+                words_beam = predict_captions_beam(model, x, device,
+                                                   vocab_embedding, idx2word)
                 captions.append(words)
-                print(words)
+                print("simple", words)
+                print("beam", words_beam)
 
             out = ModelOutput(model(x, y.get_data()))
 
@@ -149,7 +152,6 @@ def predict_captions_simple(model, x, device, vocab_embedding, idx2word):
         out_numpy = out.to("cpu").numpy()
         token = cap_utils.one_hot_to_token(out_numpy, idx2word)
         inp = torch.Tensor([vocab_embedding[token]]).to(device)
-        print("preds shape", out.shape)
         words.append(token)
 
     return words
@@ -159,19 +161,24 @@ def predict_captions_beam(model,
                           x: torch.Tensor,
                           device,
                           vocab_embedding,
+                          idx2word,
                           beam_size: int = 3) -> None:
     """IN PROGRESS"""
     k = beam_size
+    vocab_size = cfg.VOCAB_SIZE
+
     # seed your list of captions;
-    start_token_embedded = vocab_embedding['<start>']
-    # dim k x emb_len
-    prev_words = torch.Tensor([start_token_embedded] * k)
-    prev_words = prev_words.to(device)
+    # holds the top k sequences
+    seq_tokens = np.array([['<start>'] for _ in range(k)])
+
+    prev_tokens = seq_tokens[:, 0]
 
     # Setup #################################################
 
     # holds the scores for top k beam search contenders
-    top_k_scores = torch.zeros(k, 1).to(device)
+    # At every it, you add the log prob of the next word to
+    # calculate the score of the whole seq.
+    top_k_scores = torch.zeros(k, 1).to(device)  # (k,1)
 
     # Running the search ####################################
 
@@ -186,11 +193,58 @@ def predict_captions_beam(model,
     h, c = model.module.init_hidden_state(features)
 
     for step in range(cfg.MAX_CAP_LEN):
-        h, c, preds = model.module.caption_decode_step(h, c, prev_words)
-        print("preds shape", preds.shape)
-        preds = top_k_scores.expand_as(preds) + preds
+        # tokens to embedding
+        prev_words_embedded = torch.Tensor(
+            [vocab_embedding[token] for token in prev_tokens])
+        prev_words_embedded = prev_words_embedded.to(device)
 
-    pass
+        h, c, out = model.module.caption_decode_step(h, c, prev_words_embedded)
+        scores = nn.functional.log_softmax(out, dim=1)
+        # add the current probs output by the lstm to the old probs
+        scores = top_k_scores.expand_as(scores) + scores  # (k, vocab_size)
+
+        if step == 0:
+            # All k scores are the same; just take the top k start words
+            # from the first dimension (scores[0])
+            # shape (k,)
+            top_k_scores, top_k_indices = scores[0].topk(k,
+                                                         dim=0,
+                                                         largest=True,
+                                                         sorted=True)
+        else:
+            # Flatten each word for each beam into a long list and get
+            # top k
+            # shape (k,)
+            top_k_scores, top_k_indices = scores.view(-1).topk(k,
+                                                               dim=0,
+                                                               largest=True,
+                                                               sorted=True)
+            print("top k scores shape", top_k_scores.shape)
+        top_k_scores.unsqueeze_(1)
+
+        # out of the k growing sequences, which one does this word belong to?
+        prev_word_inds = (top_k_indices / vocab_size)
+        prev_seq_tokens = seq_tokens[prev_word_inds.to("cpu").numpy()]
+        # what is the next word we are going to add on?
+        next_word_inds = (top_k_indices % vocab_size).to("cpu").numpy()
+        next_tokens = np.array([
+            cap_utils.index_to_token(index, idx2word)
+            for index in next_word_inds
+        ])
+
+        seq_tokens = np.hstack(
+            (prev_seq_tokens, np.expand_dims(next_tokens, axis=1)))
+
+        # rearrange the lstm inner state and set up the next round
+        h = h[prev_word_inds]
+        c = c[prev_word_inds]
+        prev_tokens = next_tokens
+
+    print("seq_tokens at the end", seq_tokens)
+
+    # TODO: choose the best sequence
+
+    return seq_tokens
 
 
 if __name__ == "__main__":
