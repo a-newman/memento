@@ -52,6 +52,8 @@ def main(verbose: int = 1,
          debug_n: Optional[int] = None,
          batch_size: int = cfg.BATCH_SIZE,
          require_strict_model_load: bool = False,
+         restore_optimizer=True,
+         optim_string='adam',
          lr=0.01) -> None:
 
     print("TRAINING MODEL {} ON DATASET {}".format(model_name, dset_name))
@@ -78,7 +80,18 @@ def main(verbose: int = 1,
 
     # set up training
     # TODO better one?
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    if optim_string == 'adam':
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    elif optim_string == 'sgd':
+        optimizer = torch.optim.SGD(model.parameters(),
+                                    lr=lr,
+                                    momentum=0.9,
+                                    weight_decay=0.0001)
+    else:
+        raise RuntimeError(
+            "Unrecognized optimizer string {}".format(optim_string))
+
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                    step_size=5,
                                                    gamma=0.1)
@@ -108,8 +121,11 @@ def main(verbose: int = 1,
             ckpt = torch.load(ckpt_path)
             utils.try_load_state_dict(model, ckpt['model_state_dict'],
                                       require_strict_model_load)
-            utils.try_load_optim_state(optimizer, ckpt['optimizer_state_dict'],
-                                       require_strict_model_load)
+
+            if restore_optimizer:
+                utils.try_load_optim_state(optimizer,
+                                           ckpt['optimizer_state_dict'],
+                                           require_strict_model_load)
             initial_epoch = ckpt['epoch']
             iteration = ckpt['it']
     else:
