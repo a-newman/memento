@@ -264,7 +264,7 @@ class MemRestNet3D(nn.Module):
                  model_name="resnet",
                  depth=34,
                  freeze_encoder=True,
-                 final_activation='tanh'):
+                 final_activation='relu'):
         super(MemRestNet3D, self).__init__()
         assert final_activation == 'tanh' or final_activation == 'relu'
         self.model_name = model_name

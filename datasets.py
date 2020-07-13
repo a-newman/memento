@@ -103,13 +103,17 @@ class VideoRecordLoader(VideoDataset):
                  sampler=_default_sampler(),
                  loader=default_loader,
                  transform=PILVideoToTensor(),
-                 target_transform=int):
+                 target_transform=int,
+                 preload_labels=False):
         self.filter = filter
         self.record_set = record_set if filter is None else [
             r for r in record_set if filter(r)
         ]
         self.label_set = label_set
-        self.labels = self._label_examples(self.record_set, self.label_set)
+        self.preload_labels = preload_labels
+
+        if self.preload_labels:
+            self.labels = self._label_examples(self.record_set, self.label_set)
         self.sampler = sampler
         self.loader = loader
         self.transform = transform
@@ -134,7 +138,11 @@ class VideoRecordLoader(VideoDataset):
         vidlen = record.num_frames
         frame_indices = self.sampler.sample(vidlen)
         frames = self._load_frames(vidpath, frame_indices)
-        label = self.labels[index]
+
+        if self.preload_labels:
+            label = self.labels[index]
+        else:
+            label = self.label_set[record.path]
 
         if self.transform is not None:
             frames = self.transform(frames)
