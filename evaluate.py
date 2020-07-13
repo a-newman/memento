@@ -273,8 +273,6 @@ def predict_captions_beam(model,
         c = c[prev_word_inds]
         prev_tokens = next_tokens
 
-    print("seq_tokens at the end", seq_tokens)
-
     # TODO: choose the best sequence
 
     return seq_tokens
