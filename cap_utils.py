@@ -229,5 +229,5 @@ def index_to_token(index, idx2word):
     return idx2word[index]
 
 
-def get_vocab_weights(eps=0.000001):
+def get_vocab_weights(eps=0.0001):
     return eps + np.load(cfg.MEMENTO_VOCAB_WEIGHTS)

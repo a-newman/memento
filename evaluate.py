@@ -3,6 +3,7 @@ import os
 from typing import Callable, Mapping, Optional
 
 import fire
+import nltk
 import numpy as np
 import torch
 from scipy.stats import spearmanr
@@ -15,13 +16,14 @@ import config as cfg
 import utils
 from data_loader import get_dataset
 from model_utils import MemModelFields, ModelOutput
-from models import VideoStreamLSTM, get_model
+from models import get_model
 
 
 def rc(labels: ModelOutput[MemModelFields],
        preds: ModelOutput[MemModelFields],
        _,
        verbose=True):
+    # (b, t=max cap len, d=vocab size)
     mem_scores_true = labels['score']
     mem_scores_pred = preds['score']
     val = spearmanr(mem_scores_true, mem_scores_pred)
@@ -29,8 +31,40 @@ def rc(labels: ModelOutput[MemModelFields],
     return val.correlation
 
 
+def bleu_score(labels: ModelOutput[MemModelFields],
+               preds: ModelOutput[MemModelFields], _):
+    """Calculates the BLEU score using only the caption that was passed in
+    (for simplicity), not all 5.
+
+    To be used while training to evaluate model performance.
+    """
+
+    if not ('out_captions' in labels and 'out_captions' in preds):
+        return 0
+
+    # (b=batch, t=cap len, d=vocab size)
+    ref_cap_one_hot = np.argmax(labels['out_captions'], axis=2)  # (b,t)
+    pred_cap_one_hot = np.argmax(preds['out_captions'], axis=2)
+
+    # we're going to pretend the numbers themselves are the tokens
+    # and not bother translating
+    # TODO: trim caps after <end>
+    scores = []
+
+    for b in range(len(ref_cap_one_hot)):
+        ref = ref_cap_one_hot[b, :]
+        pred = pred_cap_one_hot[b, :]
+        scores.append(nltk.translate.bleu_score.sentence_bleu(ref, pred))
+
+    return np.mean(scores)
+
+    # sentence_bleu(reference_captions, candidate)
+
+
 def predict(ckpt_path,
-            metrics: Mapping[str, Callable] = {'rc': rc},
+            metrics: Mapping[str, Callable] = {
+                'rc': rc,
+            },
             num_workers: int = 20,
             use_gpu: bool = True,
             model_name: str = "frames",
@@ -219,7 +253,6 @@ def predict_captions_beam(model,
                                                                dim=0,
                                                                largest=True,
                                                                sorted=True)
-            print("top k scores shape", top_k_scores.shape)
         top_k_scores.unsqueeze_(1)
 
         # out of the k growing sequences, which one does this word belong to?

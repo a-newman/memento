@@ -6,7 +6,7 @@ from model_utils import MemCapModelFields, MemModelFields, ModelOutput
 
 
 class CaptionsLoss(nn.Module):
-    def __init__(self, device='cuda', weight=100, class_weights=None):
+    def __init__(self, device='cuda', weight=10, class_weights=None):
         super(CaptionsLoss, self).__init__()
         self.device = device
         self.weight = weight
