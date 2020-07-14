@@ -1,5 +1,6 @@
 data/
 src/
+r3d34_K_200ep.pth
 
 # swp files 
 *.sw[oap]

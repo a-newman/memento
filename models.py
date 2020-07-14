@@ -278,12 +278,13 @@ class MemRestNet3D(nn.Module):
                  model_name="resnet",
                  depth=34,
                  freeze_encoder=True,
-                 final_activation='relu'):
+                 final_activation='relu',
+                 pretrained_path=cfg.RESNET_3D_34_PRETRAINED_CKPT):
         super(MemRestNet3D, self).__init__()
         assert final_activation == 'tanh' or final_activation == 'relu'
         self.model_name = model_name
         self.depth = depth
-        self.pretrained_path = "r3d34_K_200ep.pth"
+        self.pretrained_path = pretrained_path
 
         self.base = generate_model(self.get_opts(self.model_name, self.depth))
         self.base = load_pretrained_model(self.base,

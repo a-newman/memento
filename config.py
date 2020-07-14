@@ -10,6 +10,9 @@ MEMENTO_CAPTIONS_EMBEDDING = os.path.join(MEMENTO_CAPTIONS_PATH,
 MEMENTO_VOCAB = os.path.join(MEMENTO_CAPTIONS_PATH, "vocab.json")
 MEMENTO_VOCAB_WEIGHTS = os.path.join(MEMENTO_CAPTIONS_PATH, "vocab_freq.npy")
 
+# Only if you want pretrained weights for the ResNet3D-34
+RESNET_3D_34_PRETRAINED_CKPT = "r3d34_K_200ep.pth"
+
 BATCH_SIZE = 32
 NUM_WORKERS = 20
 USE_GPU = True
