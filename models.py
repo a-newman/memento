@@ -20,8 +20,6 @@ def get_model(model_name, device):
         return MemRestNet3D()
     elif model_name == "video_lstm":
         return VideoStreamLSTM(device)
-    elif model_name == "video_lstm_fc":
-        return VideoStreamLSTMFC(device)
     else:
         raise RuntimeError("Unrecognized model name {}".format(model_name))
 
@@ -158,126 +156,6 @@ class VideoStreamLSTM(nn.Module):
 
         features = self.encode(x)
         # print("features shape", features.shape)
-        batch_size = features.size(0)
-
-        # mem-alpha branch
-        mem_out = self.final_conv(features)
-        mem_out = mem_out.squeeze(3).squeeze(3).mean(2)
-        mem_out = self.activation(mem_out)
-        mem_scores = mem_out[:, 0]
-        alphas = mem_out[:, 1]
-
-        # captions branch
-
-        h, c = self.init_hidden_state(features)
-
-        predictions = torch.zeros(batch_size, self.max_caption_size,
-                                  self.vocab_size).to(self.device)
-
-        # cap inp: batch x max_cap_len x vocab_embed_size
-        # = (b x 50 x 300)
-
-        for i in range(self.max_caption_size):
-            inp = cap_inp[:, i, :]  # (batch size, input size)
-            h, c, preds = self.caption_decode_step(h, c, inp)
-            # print("inp", inp.shape)
-            predictions[:, i, :] = preds
-
-        data: MemCapModelFields = {
-            'score': mem_scores,
-            'alpha': alphas,
-            'in_captions': cap_inp,
-            'out_captions': predictions
-        }
-
-        return data
-
-
-class VideoStreamLSTMFC(nn.Module):
-    """
-    See https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Image-Captioning/blob/master/models.py
-    for implementation of show, attend, and tell
-    """
-    def __init__(self,
-                 device,
-                 max_caption_size=cfg.MAX_CAP_LEN,
-                 vocab_size=cfg.VOCAB_SIZE,
-                 n_hidden_units=512,
-                 freeze_encoder=True):
-        super(VideoStreamLSTMFC, self).__init__()
-        self.max_caption_size = max_caption_size
-        self.vocab_size = vocab_size
-        self.feature_dim = 1024
-        self.n_hidden_units = n_hidden_units
-        self.lstm_input_size = 300
-        self.dropout = 0.5
-        self.device = device
-        self.freeze_encoder = freeze_encoder
-
-        self.base = HeadlessI3D.get_pretrained()
-
-        # mem alpha branch
-        self.final_conv = self._unit_conv(in_dim=self.feature_dim, out_dim=2)
-        self.activation = nn.LeakyReLU()
-
-        # captions branch
-        self.features_downsa = self._unit_conv(in_dim=self.feature_dim,
-                                               out_dim=100)
-        self.init_h = nn.Linear(in_features=500,
-                                out_features=self.n_hidden_units)
-        self.init_c = nn.Linear(in_features=500,
-                                out_features=self.n_hidden_units)
-
-        # input_size must be the size of the input word vectors, i.e. size of
-        # the fasttext embedding
-        self.lstm_step = nn.LSTMCell(input_size=self.lstm_input_size,
-                                     hidden_size=self.n_hidden_units)
-        self.cap_fc = nn.Linear(self.n_hidden_units, self.vocab_size)
-        self.cap_dropout = nn.Dropout(p=self.dropout)
-        # self.cap_activation = nn.Softmax(dim=1)
-
-        if self.freeze_encoder:
-            for param in self.base.parameters():
-                param.requires_grad = False
-
-    def encode(self, x):
-        return self.base(x)
-
-    @staticmethod
-    def _unit_conv(in_dim, out_dim):
-        return nn.Conv3d(in_channels=in_dim,
-                         out_channels=out_dim,
-                         kernel_size=(1, 1, 1),
-                         stride=(1, 1, 1))
-
-    def init_hidden_state(self, features):
-
-        features = self.features_downsa(features)  # (batch, 100, 5, 1, 1)
-        features = torch.flatten(features, start_dim=1)  # (batch, 500)
-
-        h = self.init_h(features)
-        # print("h shape", h.shape)
-        c = self.init_c(features)
-        # cap dim seq_len, batch, input_size
-
-        return h, c
-
-    def caption_decode_step(self, h, c, inputs):
-        newh, newc = self.lstm_step(inputs, (h, c))
-        logits = self.cap_fc(self.cap_dropout(newh))
-        # preds = self.cap_activation(logits)
-        preds = logits
-
-        return newh, newc, preds
-
-    def forward(self, x,
-                label: ModelOutput[MemCapModelFields]) -> MemCapModelFields:
-
-        # print("x shape", x.shape)
-        cap_inp = label['in_captions']
-        # print("cap inp shape", cap_inp.shape)
-
-        features = self.encode(x)  # (batch, 1024, 5, 1, 1)
         batch_size = features.size(0)
 
         # mem-alpha branch
