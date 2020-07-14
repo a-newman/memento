@@ -234,7 +234,7 @@ def get_vocab_weights(eps=0.0001):
 
 def predict_captions_simple(model, x, device, vocab_embedding, idx2word):
 
-    features = model.module.encode(x)  # (batch(1), 1024, 5, 1, 1)
+    features, feature_map = model.module.encode(x)  # (batch(1), 1024, 5, 1, 1)
     batch_size = features.shape[0]
 
     start_token_embedded = vocab_embedding['<start>']
@@ -247,7 +247,7 @@ def predict_captions_simple(model, x, device, vocab_embedding, idx2word):
     words = []
 
     for step in range(cfg.MAX_CAP_LEN):
-        h, c, out = model.module.caption_decode_step(h, c, inp)
+        h, c, out = model.module.caption_decode_step(h, c, inp, feature_map)
         out_numpy = out.to("cpu").numpy()
         token = one_hot_to_token(out_numpy, idx2word)
         inp = torch.Tensor([vocab_embedding[token]]).to(device)

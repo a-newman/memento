@@ -131,7 +131,10 @@ class VideoStreamLSTM(nn.Module):
                          stride=(1, 1, 1))
 
     def encode(self, x):
-        return self.base(x)
+        features = self.base(x)
+        feature_map = None
+
+        return features, feature_map
 
     def init_hidden_state(self, features):
         h = self.init_h(features).squeeze(3).squeeze(3).mean(2)
@@ -141,7 +144,7 @@ class VideoStreamLSTM(nn.Module):
 
         return h, c
 
-    def caption_decode_step(self, h, c, inputs):
+    def caption_decode_step(self, h, c, inputs, feature_map=None):
         newh, newc = self.lstm_step(inputs, (h, c))
         logits = self.cap_fc(self.cap_dropout(newh))
         # preds = self.cap_activation(logits)
@@ -156,7 +159,7 @@ class VideoStreamLSTM(nn.Module):
         cap_inp = label['in_captions']
         # print("cap inp shape", cap_inp.shape)
 
-        features = self.encode(x)
+        features, _ = self.encode(x)
         # print("features shape", features.shape)
         batch_size = features.size(0)
 
@@ -404,7 +407,6 @@ class VideoStreamAttLSTM(nn.Module):
         # Architecture ########################################################
 
         self.base = HeadlessI3D.get_pretrained(return_spatial_features=True)
-        print("BASE", self.base)
 
         # mem alpha branch
         self.final_conv = self._unit_conv(in_dim=self.feature_dim, out_dim=2)
@@ -443,7 +445,11 @@ class VideoStreamAttLSTM(nn.Module):
                          stride=(1, 1, 1))
 
     def encode(self, x):
-        return self.base(x)
+        features, feature_map = self.base(x)
+        feature_map = feature_map.flatten(start_dim=2).transpose(1, 2)
+        # print("feature map after flatten", feature_map.shape)
+
+        return features, feature_map
 
     def init_hidden_state(self, features):
         h = self.init_h(features).squeeze(3).squeeze(3).mean(2)
@@ -453,11 +459,15 @@ class VideoStreamAttLSTM(nn.Module):
 
         return h, c
 
-    def caption_decode_step(self, h, c, inputs, attention_weighted_encoding):
+    def caption_decode_step(self, h, c, inputs, feature_map):
+        att_weighted_features, att_alphas = self.att(feature_map, h)
+        gate = self.sigmoid(self.f_beta(h))
+        att_weighted_features = gate * att_weighted_features  # (b, L, D)
+
         # print("inside cap decode step")
         # print("inputs shape", inputs.shape)
         # print("encoding shape", attention_weighted_encoding.shape)
-        lstm_inp = torch.cat([inputs, attention_weighted_encoding], dim=1)
+        lstm_inp = torch.cat([inputs, att_weighted_features], dim=1)
         # print("lstm_inp shape", lstm_inp.shape)
         newh, newc = self.lstm_step(lstm_inp, (h, c))
         logits = self.cap_fc(self.cap_dropout(newh))
@@ -474,7 +484,7 @@ class VideoStreamAttLSTM(nn.Module):
         # print("cap inp shape", cap_inp.shape)
 
         # features: (batch, 1024, 5, 1, 1)
-        # feature_map: (batch, 1024, 6, 7, 7)
+        # feature_map: (batch, L=294, D=1024)
         features, feature_map = self.encode(x)  # (batch, 1024, 5, 1, 1)
         # print("features shape", features.shape)
         batch_size = features.size(0)
@@ -490,10 +500,6 @@ class VideoStreamAttLSTM(nn.Module):
 
         h, c = self.init_hidden_state(features)
 
-        # feature_map: (batch, L=294, D=1024)
-        feature_map = feature_map.flatten(start_dim=2).transpose(1, 2)
-        # print("feature map after flatten", feature_map.shape)
-
         predictions = torch.zeros(batch_size, self.max_caption_size,
                                   self.vocab_size).to(self.device)
 
@@ -501,13 +507,9 @@ class VideoStreamAttLSTM(nn.Module):
         # = (b x 50 x 300)
 
         for i in range(self.max_caption_size):
-            att_weighted_features, att_alphas = self.att(feature_map, h)
-            gate = self.sigmoid(self.f_beta(h))
-            att_weighted_features = gate * att_weighted_features  # (b, L, D)
 
             inp = cap_inp[:, i, :]  # (batch size, input size)
-            h, c, preds = self.caption_decode_step(h, c, inp,
-                                                   att_weighted_features)
+            h, c, preds = self.caption_decode_step(h, c, inp, feature_map)
             # print("inp", inp.shape)
             predictions[:, i, :] = preds
 
