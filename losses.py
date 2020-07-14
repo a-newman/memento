@@ -49,17 +49,37 @@ class CaptionsLoss(nn.Module):
 
 
 class MemMSELoss(nn.Module):
+    def __init__(self, device, weights=None):
+        super(MemMSELoss, self).__init__()
+
+        if weights is not None:
+            self.weights = torch.tensor(weights,
+                                        dtype=torch.float32).to(device)
+        self.device = device
+
     def forward(self, y_pred: ModelOutput[MemModelFields],
                 y_true: ModelOutput[MemModelFields]):
+
         mem_true = y_true['score']
         alpha_true = y_true['alpha']
         mem_pred = y_pred['score']
         alpha_pred = y_pred['alpha']
 
-        mse_mem = nn.functional.mse_loss(mem_pred, mem_true)
-        mse_alpha = nn.functional.mse_loss(alpha_pred, alpha_true)
+        if self.weights is not None:
+            bucket_width = 100 / (len(self.weights) - 1)
+            indices = (mem_true / bucket_width).floor().long()
+            weights = self.weights[indices]
+            mse_mem = nn.functional.mse_loss(mem_pred, mem_true, reduce=None)
+            mse_alpha = nn.functional.mse_loss(alpha_pred,
+                                               alpha_true,
+                                               reduce=None)
 
-        return mse_mem + mse_alpha
+            return (weights * mse_mem).mean() + (weights * mse_alpha).mean()
+        else:
+            mse_mem = nn.functional.mse_loss(mem_pred, mem_true)
+            mse_alpha = nn.functional.mse_loss(alpha_pred, alpha_true)
+
+            return mse_mem + mse_alpha
 
 
 class MemAlphaLoss(nn.Module):

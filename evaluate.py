@@ -14,7 +14,8 @@ from tqdm import tqdm
 import cap_utils
 import config as cfg
 import utils
-from data_loader import get_dataset
+from data_loader import (VIDEO_TEST_TRANSFORMS, VIDEO_TRAIN_TRANSFORMS,
+                         get_dataset)
 from model_utils import MemModelFields, ModelOutput
 from models import get_model
 
@@ -61,37 +62,34 @@ def bleu_score(labels: ModelOutput[MemModelFields],
     # sentence_bleu(reference_captions, candidate)
 
 
-def predict(ckpt_path,
-            metrics: Mapping[str, Callable] = {
-                'rc': rc,
-            },
-            num_workers: int = 20,
-            use_gpu: bool = True,
-            model_name: str = "frames",
-            dset_name: str = "memento_frames",
-            batch_size: int = 1,
-            preds_savepath: Optional[str] = None,
-            use_val: bool = False,
-            debug_n: Optional[int] = None,
-            should_predict_captions: bool = False):
+def predict(
+    ckpt_path,
+    should_predict_captions: bool = False,
+    # metrics: Mapping[str, Callable] = {
+    #     'rc': rc,
+    # },
+    num_workers: int = 20,
+    use_gpu: bool = True,
+    model_name: str = "frames",
+    dset_name: str = "memento_frames",
+    batch_size: int = 1,
+    preds_savepath: Optional[str] = None,
+    use_val: bool = False,
+    debug_n: Optional[int] = None,
+    n_mem_repetitions=5):
 
     print("ckpt path: {}".format(ckpt_path))
 
     if preds_savepath is None:
+        fname = "_" + ("captions"
+                       if should_predict_captions else "mems") + ".json"
         preds_savepath = os.path.splitext(
-            ckpt_path.replace(cfg.CKPT_DIR, cfg.PREDS_DIR))[0] + '.json'
+            ckpt_path.replace(cfg.CKPT_DIR, cfg.PREDS_DIR))[0] + fname
         utils.makedirs([os.path.dirname(preds_savepath)])
     print("preds savepath: {}".format(preds_savepath))
 
     device = utils.set_device()
     print('DEVICE', device)
-
-    # load the vocab embedding
-    with open(cfg.MEMENTO_CAPTIONS_EMBEDDING) as infile:
-        vocab_embedding = json.load(infile)
-
-    # load the vocab itself
-    word2idx, idx2word = cap_utils.index_vocab()
 
     # load the ckpt
     print("Loading model from path: {}".format(ckpt_path))
@@ -108,7 +106,11 @@ def predict(ckpt_path,
     print("USING MODEL TYPE {} ON DSET {}".format(model_name, dset_name))
 
     # data loader
-    train, val, test = get_dataset(dset_name)
+    use_augmentations = (not should_predict_captions) and (n_mem_repetitions >
+                                                           1)
+    print("Use augmentations?", use_augmentations)
+    test_transforms = VIDEO_TRAIN_TRANSFORMS if use_augmentations else VIDEO_TEST_TRANSFORMS
+    train, val, test = get_dataset(dset_name, test_transforms=test_transforms)
     ds = val if use_val else test
 
     if ds is None:
@@ -123,159 +125,114 @@ def predict(ckpt_path,
                     shuffle=False,
                     num_workers=num_workers)
 
-    preds: Optional[ModelOutput] = None
-    labels: Optional[ModelOutput] = None
-    captions = []
-    with torch.no_grad():
-        for i, (x, y_) in tqdm(enumerate(dl), total=len(ds) / batch_size):
+    # either do mem scores or captions
 
-            y: ModelOutput[MemModelFields] = ModelOutput(y_)
-            y_list = y.to_numpy()
-            labels = y_list if labels is None else labels.merge(y_list)
+    if should_predict_captions:
+        # load the vocab embedding
+        with open(cfg.MEMENTO_CAPTIONS_EMBEDDING) as infile:
+            vocab_embedding = json.load(infile)
 
-            x = x.to(device)
-            y = y.to_device(device)
+        # load the vocab itself
+        word2idx, idx2word = cap_utils.index_vocab()
 
-            if should_predict_captions:
-                assert batch_size == 1  # required for beam search
-                words = predict_captions_simple(model, x, device,
-                                                vocab_embedding, idx2word)
-                words_beam = predict_captions_beam(model, x, device,
-                                                   vocab_embedding, idx2word)
-                captions.append(words)
-                print("simple", words)
-                print("beam", words_beam)
+        calc_captions(model, dl, ds, batch_size, device, vocab_embedding,
+                      idx2word, preds_savepath)
 
-            out = ModelOutput(model(x, y.get_data()))
+    else:
+        _calc_mem_scores(model,
+                         ckpt_path,
+                         dl,
+                         ds,
+                         batch_size,
+                         device,
+                         preds_savepath,
+                         n_times=n_mem_repetitions)
 
-            out_list = out.to_device('cpu').to_numpy()
-            preds = out_list if preds is None else preds.merge(out_list)
 
-    metrics = {fname: f(labels, preds, None) for fname, f in metrics.items()}
-    print("METRICS", metrics)
+def _calc_mem_scores(model, ckpt_path, dl, ds, batch_size, device,
+                     preds_savepath, n_times):
+
+    alphas = []
+    mems = []
+    gt_mems = None
+    gt_alphas = None
+
+    for i in range(n_times):
+        print("Generating mem scores, round {}".format(i))
+
+        preds: Optional[ModelOutput] = None
+        labels: Optional[ModelOutput] = None
+        with torch.no_grad():
+            for i, (x, y_) in tqdm(enumerate(dl), total=len(ds) / batch_size):
+
+                y: ModelOutput[MemModelFields] = ModelOutput(y_)
+                y_list = y.to_numpy()
+                labels = y_list if labels is None else labels.merge(y_list)
+
+                x = x.to(device)
+                y = y.to_device(device)
+
+                out = ModelOutput(model(x, y.get_data()))
+
+                out_list = out.to_device('cpu').to_numpy()
+                preds = out_list if preds is None else preds.merge(out_list)
+
+        mems.append(preds['score'])
+        alphas.append(preds['alpha'])
+
+        print("correlation", spearmanr(preds['score'], labels['score']))
+
+        if gt_mems is None:
+            gt_mems = labels['score']
+            gt_alphas = labels['alpha']
+
+    # merge mem scores
+    mems_avg = np.array(mems).mean(axis=0)
+    alphas_avg = np.array(alphas).mean(axis=0)
+
+    rc_value = spearmanr(mems_avg, gt_mems)
+    print("rc", rc_value)
+
+    metrics = {'rc': rc_value.correlation}
 
     data = {
         'ckpt': ckpt_path,
-        'preds': preds.to_list().get_data(),
-        'labels': labels.to_list().get_data(),
+        'mems': mems_avg.tolist(),
+        'alphas': alphas_avg.tolist(),
+        'gt_mems': gt_mems.tolist(),
+        'gt_alphas': gt_alphas.tolist(),
         'metrics': metrics
     }
-
-    if should_predict_captions:
-        data['captions'] = captions
 
     with open(preds_savepath, "w") as outfile:
         print("Saving results")
         json.dump(data, outfile)
 
 
-def predict_captions_simple(model, x, device, vocab_embedding, idx2word):
-    start_token_embedded = vocab_embedding['<start>']
-    inp = torch.Tensor([start_token_embedded])
-    inp = inp.to(device)
+def calc_captions(model, dl, ds, batch_size, device, vocab_embedding, idx2word,
+                  preds_savepath):
+    assert batch_size == 1
+    captions = []
+    with torch.no_grad():
+        for i, (x, y_) in tqdm(enumerate(dl), total=len(ds) / batch_size):
 
-    features = model.module.encode(x)  # (batch(1), 1024, 5, 1, 1)
+            y: ModelOutput[MemModelFields] = ModelOutput(y_)
 
-    # initialize the lstm
-    h, c = model.module.init_hidden_state(features)
+            x = x.to(device)
+            y = y.to_device(device)
 
-    words = []
+            words = cap_utils.predict_captions_simple(model, x, device,
+                                                      vocab_embedding,
+                                                      idx2word)
+            # words_beam = cap_utils.predict_captions_beam(model, x, device,
+            #                                    vocab_embedding, idx2word)
+            captions.append(words)
+            print("simple", words)
+            # print("beam", words_beam)
 
-    for step in range(cfg.MAX_CAP_LEN):
-        h, c, out = model.module.caption_decode_step(h, c, inp)
-        out_numpy = out.to("cpu").numpy()
-        token = cap_utils.one_hot_to_token(out_numpy, idx2word)
-        inp = torch.Tensor([vocab_embedding[token]]).to(device)
-        words.append(token)
-
-    return words
-
-
-def predict_captions_beam(model,
-                          x: torch.Tensor,
-                          device,
-                          vocab_embedding,
-                          idx2word,
-                          beam_size: int = 3) -> None:
-    """IN PROGRESS"""
-    k = beam_size
-    vocab_size = cfg.VOCAB_SIZE
-
-    # seed your list of captions;
-    # holds the top k sequences
-    seq_tokens = np.array([['<start>'] for _ in range(k)])
-
-    prev_tokens = seq_tokens[:, 0]
-
-    # Setup #################################################
-
-    # holds the scores for top k beam search contenders
-    # At every it, you add the log prob of the next word to
-    # calculate the score of the whole seq.
-    top_k_scores = torch.zeros(k, 1).to(device)  # (k,1)
-
-    # Running the search ####################################
-
-    # encode the image
-    features = model.module.encode(x)  # (batch(1), 1024, 5, 1, 1)
-
-    # duplicate the features k times
-    newshape = [k] + list(features.shape)[1:]
-    features = features.expand(newshape)  # (k, 1024, 5, 1, 1)
-
-    # initialize the lstm
-    h, c = model.module.init_hidden_state(features)
-
-    for step in range(cfg.MAX_CAP_LEN):
-        # tokens to embedding
-        prev_words_embedded = torch.Tensor(
-            [vocab_embedding[token] for token in prev_tokens])
-        prev_words_embedded = prev_words_embedded.to(device)
-
-        h, c, out = model.module.caption_decode_step(h, c, prev_words_embedded)
-        scores = nn.functional.log_softmax(out, dim=1)
-        # add the current probs output by the lstm to the old probs
-        scores = top_k_scores.expand_as(scores) + scores  # (k, vocab_size)
-
-        if step == 0:
-            # All k scores are the same; just take the top k start words
-            # from the first dimension (scores[0])
-            # shape (k,)
-            top_k_scores, top_k_indices = scores[0].topk(k,
-                                                         dim=0,
-                                                         largest=True,
-                                                         sorted=True)
-        else:
-            # Flatten each word for each beam into a long list and get
-            # top k
-            # shape (k,)
-            top_k_scores, top_k_indices = scores.view(-1).topk(k,
-                                                               dim=0,
-                                                               largest=True,
-                                                               sorted=True)
-        top_k_scores.unsqueeze_(1)
-
-        # out of the k growing sequences, which one does this word belong to?
-        prev_word_inds = (top_k_indices / vocab_size)
-        prev_seq_tokens = seq_tokens[prev_word_inds.to("cpu").numpy()]
-        # what is the next word we are going to add on?
-        next_word_inds = (top_k_indices % vocab_size).to("cpu").numpy()
-        next_tokens = np.array([
-            cap_utils.index_to_token(index, idx2word)
-            for index in next_word_inds
-        ])
-
-        seq_tokens = np.hstack(
-            (prev_seq_tokens, np.expand_dims(next_tokens, axis=1)))
-
-        # rearrange the lstm inner state and set up the next round
-        h = h[prev_word_inds]
-        c = c[prev_word_inds]
-        prev_tokens = next_tokens
-
-    # TODO: choose the best sequence
-
-    return seq_tokens
+    with open(preds_savepath, "w") as outfile:
+        print("saving results")
+        json.dump(captions, outfile)
 
 
 if __name__ == "__main__":

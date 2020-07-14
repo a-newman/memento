@@ -14,7 +14,8 @@ from model_utils import ModelOutput
 from torchvideo.samplers import ClipSampler, FrameSampler, FullVideoSampler
 from torchvideo.transforms import (CenterCropVideo, CollectFrames,
                                    PILVideoToTensor, RandomCropVideo,
-                                   ResizeVideo, TimeToChannel, Transform)
+                                   RandomHorizontalFlipVideo, ResizeVideo,
+                                   TimeToChannel, Transform)
 
 
 class RescaleInRange(Transform):
@@ -70,6 +71,7 @@ Y_TRANSFORMS = ApplyToKeysTransform(torch.FloatTensor)
 VIDEO_TRAIN_TRANSFORMS = T.Compose([
     ResizeVideo(cfg.RESIZE),
     RandomCropVideo(cfg.CROP_SIZE),
+    RandomHorizontalFlipVideo(),
     CollectFrames(),
     PILVideoToTensor(rescale=True),
     RescaleInRange(-1, 1)
@@ -85,41 +87,53 @@ FRAMES_TRAIN_TRANSFORMS = T.Compose([VIDEO_TRAIN_TRANSFORMS, TimeToChannel()])
 FRAMES_TEST_TRANSFORMS = T.Compose([VIDEO_TEST_TRANSFORMS, TimeToChannel()])
 
 
-def get_dataset(dset_name, *args, **kwargs):
+def get_dataset(dset_name,
+                train_transforms=None,
+                val_transforms=None,
+                test_transforms=None,
+                **kwargs):
     train_ds, val_ds, test_ds = None, None, None
 
     if dset_name == "lamem":
         train_ds = LaMemLoader(split="train",
-                               transform=IMAGE_TRAIN_TRANSFORMS,
+                               transform=train_transforms
+                               or IMAGE_TRAIN_TRANSFORMS,
                                target_transform=Y_TRANSFORMS)
         val_ds = LaMemLoader(split="val",
-                             transform=IMAGE_TEST_TRANSFORMS,
+                             transform=val_transforms or IMAGE_TEST_TRANSFORMS,
                              target_transform=Y_TRANSFORMS)
         test_ds = LaMemLoader(split="test",
-                              transform=IMAGE_TEST_TRANSFORMS,
+                              transform=test_transforms
+                              or IMAGE_TEST_TRANSFORMS,
                               target_transform=Y_TRANSFORMS)
     elif dset_name == "memento_frames":
         train_ds = memento_frames_loader(split="train",
-                                         transform=VIDEO_TRAIN_TRANSFORMS,
+                                         transform=train_transforms
+                                         or VIDEO_TRAIN_TRANSFORMS,
                                          target_transform=Y_TRANSFORMS)
         val_ds = memento_frames_loader(split="val",
-                                       transform=VIDEO_TEST_TRANSFORMS,
+                                       transform=val_transforms
+                                       or VIDEO_TEST_TRANSFORMS,
                                        target_transform=Y_TRANSFORMS)
         test_ds = memento_frames_loader(split="test",
-                                        transform=VIDEO_TEST_TRANSFORMS,
+                                        transform=test_transforms
+                                        or VIDEO_TEST_TRANSFORMS,
                                         target_transform=Y_TRANSFORMS)
     elif (dset_name == "memento_ma") or (dset_name == "memento_ma_cap"):
         with_captions = dset_name == "memento_ma_cap"
         train_ds = memento_video_loader(split="train",
-                                        transform=VIDEO_TRAIN_TRANSFORMS,
+                                        transform=train_transforms
+                                        or VIDEO_TRAIN_TRANSFORMS,
                                         target_transform=Y_TRANSFORMS,
                                         with_captions=with_captions)
         val_ds = memento_video_loader(split="val",
-                                      transform=VIDEO_TEST_TRANSFORMS,
+                                      transform=val_transforms
+                                      or VIDEO_TEST_TRANSFORMS,
                                       target_transform=Y_TRANSFORMS,
                                       with_captions=with_captions)
         test_ds = memento_video_loader(split="test",
-                                       transform=VIDEO_TEST_TRANSFORMS,
+                                       transform=test_transforms
+                                       or VIDEO_TEST_TRANSFORMS,
                                        target_transform=Y_TRANSFORMS,
                                        with_captions=with_captions)
     else:

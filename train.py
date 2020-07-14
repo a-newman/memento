@@ -4,6 +4,7 @@ import time
 from typing import Callable, Mapping, Optional, Union
 
 import fire
+import numpy as np
 import torch
 from torch.nn import DataParallel, MSELoss
 from torch.utils.data import DataLoader, Subset
@@ -101,7 +102,7 @@ def main(verbose: int = 1,
     # CaptionsLoss(device=device)(x, y)
     losses = {
         'mem_mse':
-        MemMSELoss(),
+        MemMSELoss(device=device, weights=np.load("memento_weights.npy")),
         'captions':
         CaptionsLoss(device=device,
                      class_weights=cap_utils.get_vocab_weights())
