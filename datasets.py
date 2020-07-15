@@ -119,6 +119,9 @@ class VideoRecordLoader(VideoDataset):
         self.transform = transform
         self.target_transform = target_transform
 
+    def get_fnames(self):
+        return [r.filename for r in self.record_set]
+
     @staticmethod
     def _label_examples(record_set, label_set):
         if label_set:

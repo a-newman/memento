@@ -116,6 +116,7 @@ def predict(
     if ds is None:
         raise ValueError("No {} set available for this dataset.".format(
             "val" if use_val else "test"))
+    ordered_fnames = ds.get_fnames()
 
     if debug_n is not None:
         ds = Subset(ds, range(debug_n))
@@ -136,7 +137,7 @@ def predict(
         word2idx, idx2word = cap_utils.index_vocab()
 
         calc_captions(model, dl, ds, batch_size, device, vocab_embedding,
-                      idx2word, preds_savepath)
+                      idx2word, preds_savepath, ordered_fnames)
 
     else:
         _calc_mem_scores(model,
@@ -210,9 +211,9 @@ def _calc_mem_scores(model, ckpt_path, dl, ds, batch_size, device,
 
 
 def calc_captions(model, dl, ds, batch_size, device, vocab_embedding, idx2word,
-                  preds_savepath):
+                  preds_savepath, fnames):
     assert batch_size == 1
-    captions = []
+    captions = {}
     with torch.no_grad():
         for i, (x, y_) in tqdm(enumerate(dl), total=len(ds) / batch_size):
 
@@ -226,7 +227,9 @@ def calc_captions(model, dl, ds, batch_size, device, vocab_embedding, idx2word,
                                                       idx2word)
             # words_beam = cap_utils.predict_captions_beam(model, x, device,
             #                                    vocab_embedding, idx2word)
-            captions.append(words)
+
+            fname = fnames[i]
+            captions[fname] = words
             print("simple", words)
             # print("beam", words_beam)
 
