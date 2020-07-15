@@ -232,6 +232,13 @@ def get_vocab_weights(eps=0.0001):
     return eps + np.load(cfg.MEMENTO_VOCAB_WEIGHTS)
 
 
+def get_vocab_embedding():
+    with open(cfg.MEMENTO_CAPTIONS_EMBEDDING) as infile:
+        vocab_embedding = json.load(infile)
+
+    return vocab_embedding
+
+
 def predict_captions_simple(model, x, device, vocab_embedding, idx2word):
 
     features, feature_map = model.module.encode(x)  # (batch(1), 1024, 5, 1, 1)
@@ -245,9 +252,11 @@ def predict_captions_simple(model, x, device, vocab_embedding, idx2word):
     h, c = model.module.init_hidden_state(features)
 
     words = []
+    att_alphas = []
 
     for step in range(cfg.MAX_CAP_LEN):
-        h, c, out = model.module.caption_decode_step(h, c, inp, feature_map)
+        h, c, out, att_alphas = model.module.caption_decode_step(
+            h, c, inp, feature_map, return_alphas=True)
         out_numpy = out.to("cpu").numpy()
         token = one_hot_to_token(out_numpy, idx2word)
         inp = torch.Tensor([vocab_embedding[token]]).to(device)

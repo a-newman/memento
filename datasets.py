@@ -217,6 +217,7 @@ class MementoMemAlphaCapLabelSet(MementoLabelSet):
             cap,
             tokenized_cap,
             input_format="embedding_list",
+            # input_format="index_list",
             caption_format="one_hot_list",
             add_padding=True,
             word_embeddings=self.word_embedding,
@@ -256,7 +257,7 @@ class MementoMemAlphaCapLabelSet(MementoLabelSet):
             'alpha':
             alpha,
             'in_captions':
-            cap_in.astype(np.float32, copy=False),
+            np.array(cap_in).astype(np.float32, copy=False),
             'out_captions':
             cap_out.astype(np.float32, copy=False),
         })

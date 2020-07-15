@@ -130,8 +130,7 @@ def predict(
 
     if should_predict_captions:
         # load the vocab embedding
-        with open(cfg.MEMENTO_CAPTIONS_EMBEDDING) as infile:
-            vocab_embedding = json.load(infile)
+        vocab_embedding = cap_utils.get_vocab_embedding()
 
         # load the vocab itself
         word2idx, idx2word = cap_utils.index_vocab()

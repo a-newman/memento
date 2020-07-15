@@ -231,7 +231,9 @@ class HeadlessI3D(I3D):
                        **kwargs):
         model = cls(num_classes=400, **kwargs)
         # strict = False will ignore the layers that we don't use
-        model.load_state_dict(torch.load(weights), strict=False)
+
+        if not (weights is None):
+            model.load_state_dict(torch.load(weights), strict=False)
 
         return model
 
@@ -460,7 +462,12 @@ class VideoStreamAttLSTM(nn.Module):
 
         return h, c
 
-    def caption_decode_step(self, h, c, inputs, feature_map):
+    def caption_decode_step(self,
+                            h,
+                            c,
+                            inputs,
+                            feature_map,
+                            return_alphas=False):
         att_weighted_features, att_alphas = self.att(feature_map, h)
         gate = self.sigmoid(self.f_beta(h))
         att_weighted_features = gate * att_weighted_features  # (b, L, D)
@@ -475,14 +482,15 @@ class VideoStreamAttLSTM(nn.Module):
         # preds = self.cap_activation(logits)
         preds = logits
 
+        if return_alphas:
+            return newh, newc, preds, att_alphas
+
         return newh, newc, preds
 
     def forward(self, x,
                 label: ModelOutput[MemCapModelFields]) -> MemCapModelFields:
 
         # print("x shape", x.shape)
-        cap_inp = label['in_captions']
-        # print("cap inp shape", cap_inp.shape)
 
         # features: (batch, 1024, 5, 1, 1)
         # feature_map: (batch, L=294, D=1024)
@@ -498,6 +506,7 @@ class VideoStreamAttLSTM(nn.Module):
         alphas = mem_out[:, 1]
 
         # captions branch
+        cap_inp = label['in_captions']
 
         h, c = self.init_hidden_state(features)
 
